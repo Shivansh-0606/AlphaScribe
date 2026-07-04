@@ -1,0 +1,134 @@
+{
+  "theme": "DARK",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "global_vibe": "Terminal-Next, Bloomberg-esque, precise, objective, dense, brutalist. Function over form.",
+  "typography": {
+    "primary_family": "IBM Plex Sans",
+    "secondary_family": "IBM Plex Mono",
+    "usage": {
+      "h1": "text-2xl sm:text-3xl tracking-tight font-medium font-sans",
+      "h2": "text-xl sm:text-2xl tracking-tight font-sans",
+      "body": "text-sm leading-relaxed font-sans",
+      "data": "text-xs sm:text-sm font-mono tracking-tight tabular-nums",
+      "labels": "text-[10px] sm:text-xs uppercase tracking-[0.2em] font-mono text-muted-foreground"
+    },
+    "instructions_to_main_agent": "Use IBM Plex Mono for ALL financial data, tickers, tables, and pipeline logs. Use IBM Plex Sans ONLY for markdown prose and main page headers. Ensure all numbers use `tabular-nums`. Install and use Google Fonts for these."
+  },
+  "colors": {
+    "background": "#0A0A0A",
+    "surface": "#121212",
+    "surface_hover": "#1A1A1A",
+    "text": {
+      "primary": "#E0E0E0",
+      "secondary": "#888888",
+      "muted": "#555555"
+    },
+    "border": {
+      "default": "#222222",
+      "focus": "#E0E0E0"
+    },
+    "accents": {
+      "brand": "#002FA7",
+      "bullish": "#00E676",
+      "bearish": "#FF0055",
+      "warning": "#FFCC00"
+    },
+    "instructions_to_main_agent": "Strict adherence to the 10% Grey base. No gradients. No transparency on backgrounds. Color is data: only use green/red/yellow for semantic financial meaning."
+  },
+  "grids_and_layouts": {
+    "strategy": "MODE B: THE 'CONTROL ROOM' GRID",
+    "details": "Dense, compact, edge-to-edge feeling. Use `border-collapse` style grid layouts where adjacent widgets share a 1px border. No rounded corners (`rounded-none`).",
+    "sections": {
+      "sidebar": "w-64 fixed left, displaying report history (tickers, dates).",
+      "header": "Command-prompt style top bar. Sticky.",
+      "main_dashboard": "grid grid-cols-1 md:grid-cols-4 lg:grid-cols-12 gap-px bg-border (creates 1px grid lines when children have bg-background)."
+    }
+  },
+  "components": {
+    "Cards": {
+      "library": "Custom HTML / Tailwind",
+      "styles": "bg-surface rounded-none border border-border p-4. No shadows.",
+      "instructions": "Avoid Shadcn default rounded corners. Use raw divs with sharp borders for terminal feel."
+    },
+    "CommandInput": {
+      "library": "Shadcn Input",
+      "styles": "bg-black border border-border text-primary font-mono text-lg p-4 rounded-none focus:ring-1 focus:ring-primary w-full",
+      "instructions": "Design like a terminal prompt. Needs data-testid='query-input'."
+    },
+    "PipelineVisualization": {
+      "library": "Custom HTML",
+      "styles": "flex flex-col gap-2 font-mono text-xs",
+      "instructions": "Show agent progress as terminal logs (e.g., `[✓] Retriever... [⟳] Extractor...`). Use color coding for status."
+    },
+    "StructuredDataTables": {
+      "library": "Shadcn Table",
+      "styles": "text-xs font-mono tabular-nums. Header uppercase tracking-widest.",
+      "instructions": "Left-align text, right-align numbers. Use `border-b border-border/50` for rows."
+    },
+    "ToneGauge": {
+      "library": "Recharts",
+      "styles": "Minimalist.",
+      "instructions": "Use a simple horizontal stacked bar or semi-circle gauge. Colors: Bullish (#00E676), Bearish (#FF0055)."
+    },
+    "FactCheckBadges": {
+      "library": "Shadcn Badge",
+      "styles": "rounded-none text-[10px] uppercase font-mono px-1.5 py-0.5 border",
+      "instructions": "Verified: `border-bullish text-bullish bg-transparent`. Flagged: `border-bearish text-bearish bg-transparent`."
+    },
+    "MarkdownViewer": {
+      "library": "react-markdown",
+      "styles": "font-sans prose prose-invert prose-p:text-sm prose-a:text-brand prose-a:no-underline hover:prose-a:underline",
+      "instructions": "Format citations as clickable superscript numbers `[1]`. Add data-testid='markdown-content'."
+    },
+    "Tabs": {
+      "library": "Shadcn Tabs",
+      "styles": "h-8 rounded-none bg-transparent border-b border-border p-0",
+      "instructions": "Active tab gets border-b-2 border-primary text-primary. No background."
+    }
+  },
+  "visual_enhancers": {
+    "textures": "None. Keep it stark and digital.",
+    "borders": "GRID BORDERS (The 'Technical' Look). Expose the skeleton.",
+    "surfaces": "Flat Solid. Do not use Glassmorphism for this app."
+  },
+  "motion_and_interactions": {
+    "hover_states": "Invert colors for primary buttons (bg-white text-black).",
+    "animations": "Instant. Minimal animation. Terminal users prefer zero-latency feel.",
+    "loading": "Use monospace skeleton loading strings (e.g., `████████░░░░░░░░`)."
+  },
+  "accessibility": {
+    "contrast": "Ensure APCA contrast ratio requirements are met. Text on `#0A0A0A` must be at least `#888888` for secondary, `#E0E0E0` for primary.",
+    "testing": "All interactive and key informational elements MUST include `data-testid` attribute (e.g., `data-testid='ticker-submit-button'`, `data-testid='fact-check-badge'`).",
+    "focus": "focus:outline-none focus:ring-1 focus:ring-white rounded-none"
+  },
+  "media_and_images": {
+    "instructions": "Use sparingly. This is a data terminal.",
+    "image_urls": {
+      "avatars": [
+        {
+          "url": "https://images.unsplash.com/photo-1560250097-0b93528c311a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBmaW5hbmNlJTIwYXZhdGFyJTIwcG9ydHJhaXR8ZW58MHx8fHwxNzgzMDE2MTI4fDA&ixlib=rb-4.1.0&q=85",
+          "description": "Professional finance avatar (Male) - Use for user profile placeholder",
+          "category": "user_avatar"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1607746882042-944635dfe10e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzd8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBmaW5hbmNlJTIwYXZhdGFyJTIwcG9ydHJhaXR8ZW58MHx8fHwxNzgzMDE2MTI4fDA&ixlib=rb-4.1.0&q=85",
+          "description": "Professional finance avatar (Female) - Use for user profile placeholder",
+          "category": "user_avatar"
+        }
+      ],
+      "backgrounds": [
+        {
+          "url": "https://images.unsplash.com/photo-1672750771479-5ea73e9439ce?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjd8MHwxfHNlYXJjaHwxfHxmaW5hbmNpYWwlMjBhYnN0cmFjdCUyMHN1YnRsZSUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzgzMDE2MTI4fDA&ixlib=rb-4.1.0&q=85",
+          "description": "Abstract lines. Only use if absolutely necessary for an empty state background with 5% opacity and grayscale filter.",
+          "category": "empty_state_bg"
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "install_commands": [
+      "yarn add @phosphor-icons/react recharts react-markdown"
+    ],
+    "notes": "Use Phosphor icons for dense data dashboards."
+  }
+}
