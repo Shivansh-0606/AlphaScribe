@@ -19,10 +19,13 @@ import google.generativeai as genai
 
 T = TypeVar("T", bound=BaseModel)
 
-# Gemini model tiers. Flash is fast/cheap for extraction + tone; Pro is used
-# for synthesis and fact-checking where reasoning quality matters more.
-DEFAULT_LIGHT_MODEL = "gemini-1.5-flash"     # extraction / routing
-DEFAULT_HEAVY_MODEL = "gemini-1.5-pro"       # synthesis / fact-check
+# Gemini model tiers, chosen to stay within the free-tier quota:
+#   - light (extraction/tone/routing): flash-lite — fast, highest free quota
+#   - heavy (synthesis/fact-check): flash — stronger, still free-tier friendly
+# `gemini-2.5-pro` is intentionally avoided as the default: the free tier
+# rate-limits it aggressively. Override via env to use it on a paid key.
+DEFAULT_LIGHT_MODEL = os.environ.get("GEMINI_LIGHT_MODEL", "gemini-2.5-flash-lite")  # extraction / routing
+DEFAULT_HEAVY_MODEL = os.environ.get("GEMINI_HEAVY_MODEL", "gemini-2.5-flash")       # synthesis / fact-check
 
 _CONFIGURED = False
 
@@ -63,20 +66,28 @@ def _generate_sync(system: str, user: str, model: str) -> str:
     return text or ""
 
 
+def _retry_after_seconds(err: Exception) -> float | None:
+    """Extract the server-suggested retry delay from a 429 error, if present."""
+    m = re.search(r"retry_delay\s*\{\s*seconds:\s*(\d+)", str(err))
+    return float(m.group(1)) if m else None
+
+
 async def chat_text(system: str, user: str, *, model: str = DEFAULT_HEAVY_MODEL) -> str:
     last_err: Exception | None = None
-    for attempt in range(2):
+    for attempt in range(4):
         try:
             return await asyncio.to_thread(_generate_sync, system, user, model)
         except Exception as e:  # noqa: BLE001
             last_err = e
-            # transient/quota errors — retry once, escalating to the heavy model
-            if attempt == 0:
-                if model != DEFAULT_HEAVY_MODEL:
-                    model = DEFAULT_HEAVY_MODEL
-                await asyncio.sleep(1.0)
-                continue
-            break
+            if attempt == 3:
+                break
+            # On a rate-limit (429), wait the server-suggested delay; otherwise
+            # back off exponentially. Never auto-escalate to a heavier model —
+            # that only makes quota pressure worse on the free tier.
+            wait = _retry_after_seconds(e)
+            if wait is None:
+                wait = 2.0 * (attempt + 1)
+            await asyncio.sleep(min(wait, 30.0))
     raise last_err  # type: ignore[misc]
 
 
