@@ -49,6 +49,11 @@ graph = build_graph(db)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("alphascribe")
 
+# Surface the active LLM models at startup so it's obvious in the logs which
+# Gemini tier each stage uses (helps diagnose any quota / model-name issues).
+from agents.llm import DEFAULT_LIGHT_MODEL, DEFAULT_HEAVY_MODEL  # noqa: E402
+logger.info("LLM models — light=%s  heavy=%s", DEFAULT_LIGHT_MODEL, DEFAULT_HEAVY_MODEL)
+
 
 # ---------------------------------------------------------------------------
 # Models

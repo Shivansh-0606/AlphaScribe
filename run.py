@@ -91,6 +91,32 @@ def wait_port(port: int, timeout: float = 40.0) -> bool:
     return False
 
 
+def free_port(port: int) -> None:
+    """Kill whatever process is listening on `port` (e.g. a stale backend from a
+    previous run that would otherwise serve outdated code)."""
+    try:
+        if IS_WIN:
+            out = subprocess.run(["netstat", "-ano", "-p", "tcp"],
+                                 capture_output=True, text=True).stdout
+            pids = set()
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) >= 5 and parts[1].endswith(f":{port}") and parts[3] == "LISTENING":
+                    pids.add(parts[4])
+            for pid in pids:
+                subprocess.run(["taskkill", "/F", "/PID", pid],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            out = subprocess.run(["lsof", "-ti", f"tcp:{port}"],
+                                 capture_output=True, text=True).stdout
+            for pid in out.split():
+                subprocess.run(["kill", "-9", pid],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:  # noqa: BLE001
+        pass
+    time.sleep(1.0)
+
+
 # ---------------------------------------------------------------------------
 # Setup steps
 # ---------------------------------------------------------------------------
@@ -311,7 +337,10 @@ def main() -> None:
 
     for port, what in ((BACKEND_PORT, "backend"), (FRONTEND_PORT, "frontend")):
         if port_open(port):
-            die(f"port {port} ({what}) is already in use — stop that process and retry.")
+            log(f"port {port} ({what}) is in use by a stale process — freeing it ...")
+            free_port(port)
+            if port_open(port):
+                die(f"port {port} ({what}) is still in use — stop that process and retry.")
 
     # --- launch ---
     if mongod is not None:
