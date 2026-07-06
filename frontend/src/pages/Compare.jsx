@@ -5,6 +5,9 @@ import { listReports, compareReports } from "@/lib/api";
 import { COMPARE } from "@/constants/testIds";
 import { Scales, CheckSquare, Square, CheckCircle, Warning, Funnel, MagnifyingGlass, X } from "@phosphor-icons/react";
 import ReactMarkdown from "react-markdown";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid,
+} from "recharts";
 
 const FIN_FIELDS = [
   ["revenue", "Revenue"],
@@ -17,6 +20,45 @@ const FIN_FIELDS = [
 ];
 
 const pct = (v) => Math.round((v ?? 0) * 100);
+
+function QualityChart({ loaded, companies }) {
+  const data = loaded.map((r) => ({
+    name: (r.company_name || companies[r.ticker] || r.ticker).slice(0, 16),
+    Overall: pct(r.scorecard?.overall),
+    Faithfulness: pct(r.scorecard?.faithfulness),
+    Precision: pct(r.scorecard?.context_precision),
+    Relevance: pct(r.scorecard?.answer_relevance),
+    Confidence: Math.round((r.sentiment_analysis?.confidence ?? 0) * 100),
+  }));
+  const COLORS = {
+    Overall: "#4A6CFF", Faithfulness: "#00E676", Precision: "#FFCC00",
+    Relevance: "#FF7A00", Confidence: "#9B6CFF",
+  };
+  return (
+    <div className="border-t border-border p-6">
+      <div className="label-mono mb-3">Quality & confidence comparison (%)</div>
+      <div className="cell p-4" style={{ height: 320 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 8, right: 8, bottom: 8, left: -16 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+            <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+            <Tooltip
+              contentStyle={{
+                background: "hsl(var(--surface))", border: "1px solid hsl(var(--border))",
+                borderRadius: 0, fontSize: 12, fontFamily: "IBM Plex Mono, monospace",
+              }}
+            />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            {Object.entries(COLORS).map(([k, c]) => (
+              <Bar key={k} dataKey={k} fill={c} />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
 
 export default function Compare() {
   const [reports, setReports] = useState([]);
@@ -232,6 +274,9 @@ export default function Compare() {
           </div>
         )}
       </div>
+
+      {/* Quality comparison chart */}
+      {loaded.length >= 2 && <QualityChart loaded={loaded} companies={companies} />}
 
       {/* Result columns */}
       {loaded.length >= 2 && (
