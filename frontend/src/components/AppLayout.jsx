@@ -2,8 +2,9 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { deleteReport, listReports, listTickers, listCompanies, health } from "@/lib/api";
+import { useJobs } from "@/lib/jobs";
 import { APP } from "@/constants/testIds";
-import { Terminal, FileText, Upload, ChartLine, Scales, Trash } from "@phosphor-icons/react";
+import { Terminal, FileText, Upload, ChartLine, Scales, Trash, CircleNotch } from "@phosphor-icons/react";
 import ThemeToggle from "@/components/ThemeToggle";
 
 const NAV_CLS = ({ isActive }) =>
@@ -184,8 +185,46 @@ export default function AppLayout() {
 
       {/* Main */}
       <main className="flex-1 min-w-0">
+        <ActivityBar />
         <Outlet context={{ refresh, companies }} />
       </main>
+    </div>
+  );
+}
+
+// Global live-status strip: shows any in-flight analyses on every page, with
+// the current pipeline stage, and links back to the report.
+const NODE_LABEL = {
+  pipeline: "starting", retriever: "retrieving", extractor: "extracting financials",
+  tone: "analyzing tone", synthesizer: "writing brief", fact_checker: "fact-checking",
+};
+
+function ActivityBar() {
+  const { jobs } = useJobs();
+  const nav = useNavigate();
+  const active = Object.values(jobs).filter((j) => j.status === "running");
+  if (active.length === 0) return null;
+  return (
+    <div className="sticky top-0 z-20 bg-surface border-b border-primary/40">
+      {active.map((j) => (
+        <button
+          key={j.id}
+          onClick={() => nav(`/reports/${j.id}`)}
+          className="w-full flex items-center gap-2 px-6 h-9 text-left hover:bg-background/40"
+        >
+          <CircleNotch size={13} className="text-brand animate-spin shrink-0" />
+          <span className="mono text-[11px] text-primary">{j.ticker || "…"}</span>
+          <span className="mono text-[10px] uppercase tracking-widest text-brand">
+            {NODE_LABEL[j.lastNode] || "analyzing"}
+          </span>
+          <span className="text-[11px] text-muted-foreground truncate hidden md:inline">
+            {j.query}
+          </span>
+          <span className="ml-auto mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            view →
+          </span>
+        </button>
+      ))}
     </div>
   );
 }

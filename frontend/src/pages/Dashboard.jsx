@@ -10,6 +10,7 @@ import {
   trendingCompanies,
 } from "@/lib/api";
 import { DASHBOARD } from "@/constants/testIds";
+import { useJobs } from "@/lib/jobs";
 import CompanyCombobox from "@/components/CompanyCombobox";
 import { useWatchlist } from "@/lib/watchlist";
 import {
@@ -71,6 +72,7 @@ export default function Dashboard() {
   const [trending, setTrending] = useState([]);
   const searchRef = useRef(null);
   const nav = useNavigate();
+  const { startJob } = useJobs();
   const { refresh, companies = {} } = useOutletContext() || {};
   const { watchlist } = useWatchlist();
 
@@ -152,6 +154,7 @@ export default function Dashboard() {
         ticker: selected.ticker,
         query: query.trim(),
       });
+      startJob(job_id, { ticker: selected.ticker, query: query.trim() });
       toast.success(`Analyzing ${selected.name}…`);
       refresh?.();
       nav(`/reports/${job_id}`);

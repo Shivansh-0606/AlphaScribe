@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useOutletContext, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { generateReport, getReport, streamJob, ensureCompany } from "@/lib/api";
+import { generateReport, ensureCompany } from "@/lib/api";
+import { useJobs } from "@/lib/jobs";
 import { WatchlistStar } from "@/lib/watchlist";
 import PipelineLog from "@/components/PipelineLog";
 import ToneGauge from "@/components/ToneGauge";
@@ -14,54 +15,18 @@ import { CaretRight, DownloadSimple, LinkSimple, PaperPlaneRight, ArrowUUpLeft, 
 
 export default function ReportView() {
   const { id } = useParams();
-  const [events, setEvents] = useState([]);
-  const [report, setReport] = useState(null);
-  const [running, setRunning] = useState(true);
-  const closeRef = useRef(null);
+  const { jobs, ensureJob, startJob } = useJobs();
 
+  // The SSE stream lives in the global JobsProvider, so leaving this page does
+  // NOT cancel the analysis — it keeps running and shows in the status bar.
   useEffect(() => {
-    let cancelled = false;
-    setEvents([]);
-    setReport(null);
-    setRunning(true);
+    ensureJob(id);
+  }, [id, ensureJob]);
 
-    // 1) fetch snapshot in case job already completed
-    getReport(id)
-      .then((d) => {
-        if (cancelled) return;
-        if (d.status === "completed" && d.report) {
-          setReport(d.report);
-          setEvents(d.report.events || []);
-          setRunning(false);
-          return;
-        }
-        if (d.events) setEvents(d.events);
-      })
-      .catch(() => {});
-
-    // 2) attach live SSE
-    closeRef.current = streamJob(
-      id,
-      (ev) => {
-        if (ev.node === "final" && ev.report) {
-          setReport(ev.report);
-          setRunning(false);
-          return;
-        }
-        setEvents((prev) => [...prev, ev]);
-      },
-      () => {
-        setRunning(false);
-        // refresh final snapshot if we didn't get it via SSE
-        getReport(id).then((d) => d.report && setReport(d.report)).catch(() => {});
-      },
-    );
-
-    return () => {
-      cancelled = true;
-      closeRef.current?.();
-    };
-  }, [id]);
+  const job = jobs[id] || {};
+  const events = job.events || [];
+  const report = job.report || null;
+  const running = job.status === "running" || (!job.status && !report);
 
   const ticker = report?.ticker || events.find((e) => e.node === "pipeline")?.message?.match(/for (\w+)/)?.[1] || "—";
   const query = report?.query || "";
@@ -145,6 +110,7 @@ export default function ReportView() {
         query: followup.trim(),
         context_report_id: id,
       });
+      startJob(job_id, { ticker, query: followup.trim() });
       toast.success(`Follow-up dispatched for ${companyName || ticker}`);
       setFollowup("");
       refresh?.();
