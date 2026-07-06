@@ -86,8 +86,16 @@ async def ingest_document(
     doc_id = str(uuid.uuid4())
     chunks = chunk_text(text)
     now = datetime.now(timezone.utc).isoformat()
-    rows = [
-        {
+
+    # Embed chunks once at ingest and cache the vectors, so retrieval never has
+    # to re-embed the whole filing on every query. Falls back to no-cache (BM25
+    # + on-the-fly embedding) if the embedder isn't available.
+    from .retrieval import embed_texts
+    vectors = embed_texts(chunks) if chunks else None
+
+    rows = []
+    for i, c in enumerate(chunks):
+        row = {
             "doc_id": doc_id,
             "ticker": ticker,
             "source": source,
@@ -95,8 +103,9 @@ async def ingest_document(
             "text": c,
             "created_at": now,
         }
-        for i, c in enumerate(chunks)
-    ]
+        if vectors is not None:
+            row["embedding"] = [float(x) for x in vectors[i]]
+        rows.append(row)
     if rows:
         await db.filing_chunks.insert_many(rows)
     await db.filings.insert_one({

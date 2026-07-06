@@ -171,9 +171,13 @@ async def retrieve(
     if len(chunks) >= 2:
         q_emb = embed_query(query)
         if q_emb is not None:
-            # embed chunks in batches
-            texts = [c["text"] for c in chunks]
-            emb = embed_texts(texts)
+            # Use cached embeddings (stored at ingest) when every chunk has one;
+            # otherwise embed on the fly. This is the big per-query speedup.
+            cached = [c.get("embedding") for c in chunks]
+            if all(v is not None for v in cached):
+                emb = np.asarray(cached, dtype=np.float32)
+            else:
+                emb = embed_texts([c["text"] for c in chunks])
             if emb is not None and emb.size:
                 # cosine (rows already l2-normalized by fastembed)
                 sims = emb @ q_emb / (np.linalg.norm(emb, axis=1) * np.linalg.norm(q_emb) + 1e-9)
@@ -184,6 +188,7 @@ async def retrieve(
     number_re = re.compile(r"\$[\d,\.]+|[\d,\.]+%|[\d]{4,}")
     fused = []
     for i, c in enumerate(chunks):
+        c.pop("embedding", None)  # don't carry vectors downstream (report/prompt bloat)
         b = bm_norm[i]
         d = dense_norm[i] if dense_norm is not None else 0.0
         # weighted fusion: 55% BM25, 40% dense, 5% numeric-evidence heuristic
