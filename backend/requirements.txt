@@ -29,6 +29,9 @@ typer>=0.9.0
 # --- LLM provider: Google Gemini ---
 google-generativeai>=0.8.0
 
+# --- global company data (non-US fallback when SEC EDGAR has nothing) ---
+yfinance>=0.2.40
+
 # --- imported by the app but were missing from the original manifest ---
 httpx>=0.27.0
 langgraph>=0.2.0

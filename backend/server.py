@@ -20,7 +20,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 from agents.graph import build_graph
-from agents.ingest import fetch_edgar_latest, ingest_document
+from agents.ingest import fetch_edgar_latest, fetch_yfinance, ingest_document
 from agents.sample_data import SAMPLES
 from agents.scoring import compute_scorecard
 from agents.retrieval import retrieval_status
@@ -302,38 +302,49 @@ async def ensure_company(req: EnsureRequest):
             "latest_filing": latest,
         }
 
-    if exch == "IN":
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"{name or ticker} is an NSE/BSE listing. Automatic filing "
-                "download isn't supported for Indian companies yet — use "
-                "'Paste Text' or 'Upload Audio' on the Ingest page to load a "
-                "quarterly result or earnings call."
-            ),
-        )
+    # US companies: try SEC EDGAR first (full filings, richest source).
+    if exch != "IN":
+        for form in ("10-Q", "10-K"):
+            try:
+                doc = await fetch_edgar_latest(ticker, form)
+            except Exception as e:
+                logger.warning("EDGAR fetch failed for %s %s: %s", ticker, form, e)
+                doc = None
+            if doc and doc.get("text"):
+                result = await ingest_document(
+                    db, ticker=ticker, source=doc["source"], text=doc["text"],
+                    company_name=doc.get("company_name"),
+                )
+                result["action"] = "ingested_from_edgar"
+                result["url"] = doc.get("url")
+                result["filing_date"] = doc.get("filing_date")
+                result["form_type"] = form
+                result["exchange"] = "US"
+                return result
 
-    for form in ("10-Q", "10-K"):
-        try:
-            doc = await fetch_edgar_latest(ticker, form)
-        except Exception as e:
-            logger.warning("EDGAR fetch failed for %s %s: %s", ticker, form, e)
-            doc = None
-        if doc and doc.get("text"):
-            result = await ingest_document(
-                db, ticker=ticker, source=doc["source"], text=doc["text"],
-                company_name=doc.get("company_name"),
-            )
-            result["action"] = "ingested_from_edgar"
-            result["url"] = doc.get("url")
-            result["filing_date"] = doc.get("filing_date")
-            result["form_type"] = form
-            result["exchange"] = "US"
-            return result
+    # Fallback (and primary path for non-US): Yahoo Finance profile — works for
+    # any listed company worldwide (NSE/BSE tickers via .NS/.BO suffixes).
+    try:
+        ydoc = await fetch_yfinance(ticker, exch)
+    except Exception as e:
+        logger.warning("yfinance fetch failed for %s: %s", ticker, e)
+        ydoc = None
+    if ydoc and ydoc.get("text"):
+        result = await ingest_document(
+            db, ticker=ticker, source=ydoc["source"], text=ydoc["text"],
+            company_name=ydoc.get("company_name"),
+        )
+        result["action"] = "ingested_from_yfinance"
+        result["url"] = ydoc.get("url")
+        result["exchange"] = exch or "US"
+        return result
 
     raise HTTPException(
         status_code=404,
-        detail=f"No SEC filing available for {name or ticker}. Try 'Paste text' or 'Upload audio' instead.",
+        detail=(
+            f"Couldn't fetch data for {name or ticker} from SEC EDGAR or Yahoo "
+            "Finance. Try 'Paste text' or 'Upload audio' on the Ingest page."
+        ),
     )
 
 

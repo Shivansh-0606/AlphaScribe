@@ -73,6 +73,79 @@ async def fetch_edgar_latest(ticker: str, form_type: str = "10-Q") -> dict | Non
     return None
 
 
+def _fmt_num(v) -> str:
+    """Human-format a large number (e.g. 1.06e12 -> '$1.06T')."""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return "n/a"
+    for unit, div in (("T", 1e12), ("B", 1e9), ("M", 1e6), ("K", 1e3)):
+        if abs(v) >= div:
+            return f"{v / div:.2f}{unit}"
+    return f"{v:.2f}"
+
+
+def _fetch_yfinance_sync(ticker: str, exchange: str | None) -> dict | None:
+    """Build a research-text document for ANY company from Yahoo Finance.
+
+    Works for US tickers directly and for global tickers via exchange suffixes
+    (NSE '.NS', BSE '.BO'). Returns {source, text, company_name, url} or None.
+    """
+    import yfinance as yf
+
+    candidates = [ticker]
+    if exchange == "IN":
+        candidates = [f"{ticker}.NS", f"{ticker}.BO", ticker]
+
+    for sym in candidates:
+        try:
+            info = yf.Ticker(sym).info
+        except Exception:
+            continue
+        if not info or not (info.get("longName") or info.get("shortName")):
+            continue
+
+        name = info.get("longName") or info.get("shortName")
+        pct = lambda k: (f"{info[k] * 100:.1f}%" if isinstance(info.get(k), (int, float)) else "n/a")  # noqa: E731
+        lines = [
+            f"{name} ({sym}) — Company Financial Profile (source: Yahoo Finance)",
+            "",
+            f"Sector: {info.get('sector', 'n/a')}   Industry: {info.get('industry', 'n/a')}",
+            f"Country: {info.get('country', 'n/a')}   Currency: {info.get('currency', 'n/a')}",
+            "",
+            "## Key Metrics",
+            f"Market Cap: {_fmt_num(info.get('marketCap'))}",
+            f"Total Revenue (ttm): {_fmt_num(info.get('totalRevenue'))}",
+            f"EBITDA: {_fmt_num(info.get('ebitda'))}",
+            f"Net Income to Common: {_fmt_num(info.get('netIncomeToCommon'))}",
+            f"Trailing EPS: {info.get('trailingEps', 'n/a')}   Forward EPS: {info.get('forwardEps', 'n/a')}",
+            f"Gross Margin: {pct('grossMargins')}   Operating Margin: {pct('operatingMargins')}   Profit Margin: {pct('profitMargins')}",
+            f"Revenue Growth (yoy): {pct('revenueGrowth')}   Earnings Growth: {pct('earningsGrowth')}",
+            f"Return on Equity: {pct('returnOnEquity')}   Debt/Equity: {info.get('debtToEquity', 'n/a')}",
+            f"P/E (trailing): {info.get('trailingPE', 'n/a')}   Forward P/E: {info.get('forwardPE', 'n/a')}",
+            f"Dividend Yield: {pct('dividendYield')}   52w High/Low: {info.get('fiftyTwoWeekHigh', 'n/a')}/{info.get('fiftyTwoWeekLow', 'n/a')}",
+            f"Analyst Recommendation: {info.get('recommendationKey', 'n/a')}   Target Mean: {info.get('targetMeanPrice', 'n/a')}",
+        ]
+        summary = info.get("longBusinessSummary")
+        if summary:
+            lines += ["", "## Business Summary", summary]
+
+        text = "\n".join(lines)
+        return {
+            "source": f"Yahoo Finance Profile — {sym}",
+            "text": text,
+            "company_name": name,
+            "url": f"https://finance.yahoo.com/quote/{sym}",
+        }
+    return None
+
+
+async def fetch_yfinance(ticker: str, exchange: str | None = None) -> dict | None:
+    """Async wrapper around the blocking yfinance fetch."""
+    import asyncio
+    return await asyncio.to_thread(_fetch_yfinance_sync, ticker.upper(), exchange)
+
+
 async def ingest_document(
     db: Any,
     *,
