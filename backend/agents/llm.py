@@ -116,11 +116,20 @@ async def chat_json(
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        # last-ditch: extract first {...} block
-        m = re.search(r"\{.*\}", raw, re.DOTALL)
+        # last-ditch: extract first {...} object or [...] array block
+        m = re.search(r"\{.*\}|\[.*\]", raw, re.DOTALL)
         if not m:
             raise ValueError(f"LLM did not return JSON: {raw[:400]}")
         data = json.loads(m.group(0))
+    # The model sometimes returns a bare array when the schema wraps a single
+    # list field (e.g. FactCheckSchema -> {"claims": [...]}). Wrap it.
+    if isinstance(data, list):
+        list_fields = [
+            name for name, f in schema.model_fields.items()
+            if "list" in str(f.annotation).lower()
+        ]
+        if len(list_fields) == 1:
+            data = {list_fields[0]: data}
     try:
         return schema.model_validate(data)
     except ValidationError as e:
