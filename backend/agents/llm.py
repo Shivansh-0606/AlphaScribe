@@ -27,17 +27,23 @@ _LLM_CTX: ContextVar[dict | None] = ContextVar("_LLM_CTX", default=None)
 
 # Sensible free-tier-friendly defaults per provider.
 PROVIDER_DEFAULTS = {
-    "gemini": ("gemini-2.0-flash-lite", "gemini-2.0-flash"),
-    "openai": ("gpt-4o-mini", "gpt-4o-mini"),
-    "groq":   ("llama-3.1-8b-instant", "llama-3.3-70b-versatile"),
-    # "custom": any OpenAI-compatible endpoint (aipipe, OpenRouter, Together,
-    # local LLMs, etc). Requires base_url + model from the request.
-    "custom":  ("gpt-4o-mini", "gpt-4o-mini"),
+    "gemini":     ("gemini-2.0-flash-lite", "gemini-2.0-flash"),
+    "openai":     ("gpt-4o-mini", "gpt-4o"),
+    "anthropic":  ("claude-3-5-haiku-latest", "claude-3-5-sonnet-latest"),
+    "groq":       ("llama-3.1-8b-instant", "llama-3.3-70b-versatile"),
+    "openrouter": ("openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet"),
+    "deepseek":   ("deepseek-chat", "deepseek-chat"),
+    "mistral":    ("mistral-small-latest", "mistral-large-latest"),
+    # any OpenAI-compatible endpoint (aipipe, local LLMs). base_url from request.
+    "custom":     ("gpt-4o-mini", "gpt-4o-mini"),
 }
 
 # Built-in base URLs for OpenAI-compatible providers.
 PROVIDER_BASE_URL = {
-    "groq": "https://api.groq.com/openai/v1",
+    "groq":       "https://api.groq.com/openai/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "deepseek":   "https://api.deepseek.com/v1",
+    "mistral":    "https://api.mistral.ai/v1",
 }
 
 # Symbolic tiers — resolved to a concrete model at call time based on provider.
@@ -74,12 +80,15 @@ def _active() -> dict:
 
     key = ctx.get("api_key")
     if not key:
-        if provider == "gemini":
-            key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        elif provider == "openai":
-            key = os.environ.get("OPENAI_API_KEY")
-        elif provider == "groq":
-            key = os.environ.get("GROQ_API_KEY")
+        env_keys = {
+            "gemini": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY",
+            "anthropic": "ANTHROPIC_API_KEY", "groq": "GROQ_API_KEY",
+            "openrouter": "OPENROUTER_API_KEY", "deepseek": "DEEPSEEK_API_KEY",
+            "mistral": "MISTRAL_API_KEY",
+        }
+        key = os.environ.get(env_keys.get(provider, ""))
+        if provider == "gemini" and not key:
+            key = os.environ.get("GOOGLE_API_KEY")
 
     d_light, d_heavy = PROVIDER_DEFAULTS.get(provider, PROVIDER_DEFAULTS["gemini"])
     light = ctx.get("light_model") or os.environ.get("LLM_LIGHT_MODEL") or d_light
@@ -128,6 +137,16 @@ def _gen_openai_compatible(system: str, user: str, model: str, key: str, base_ur
     return resp.choices[0].message.content or ""
 
 
+def _gen_anthropic(system: str, user: str, model: str, key: str) -> str:
+    import anthropic
+    client = anthropic.Anthropic(api_key=key)
+    resp = client.messages.create(
+        model=model, max_tokens=4096, system=system,
+        messages=[{"role": "user", "content": user}],
+    )
+    return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+
+
 def _generate_sync(system: str, user: str, model: str) -> str:
     cfg = _active()
     provider, key = cfg["provider"], cfg["api_key"]
@@ -139,9 +158,11 @@ def _generate_sync(system: str, user: str, model: str) -> str:
     real_model = _resolve_model(model, cfg)
     if provider == "gemini":
         return _gen_gemini(system, user, real_model, key)
-    # openai / groq / custom (aipipe, OpenRouter, Together, local, ...) all use
-    # the OpenAI-compatible chat API. base_url distinguishes them.
-    if provider in ("openai", "groq", "custom"):
+    if provider == "anthropic":
+        return _gen_anthropic(system, user, real_model, key)
+    # openai / groq / openrouter / deepseek / mistral / custom all use the
+    # OpenAI-compatible chat API. base_url distinguishes them.
+    if provider in ("openai", "groq", "openrouter", "deepseek", "mistral", "custom"):
         return _gen_openai_compatible(system, user, real_model, key, cfg["base_url"])
     raise RuntimeError(f"Unknown LLM provider: {provider}")
 

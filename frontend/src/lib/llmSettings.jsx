@@ -14,8 +14,12 @@ const LlmCtx = createContext(null);
 export const PROVIDERS = [
   { id: "gemini", label: "Google Gemini", keyUrl: "https://aistudio.google.com/apikey", hint: "Free tier", custom: false },
   { id: "groq", label: "Groq (Llama)", keyUrl: "https://console.groq.com/keys", hint: "Free, fast", custom: false },
-  { id: "openai", label: "OpenAI", keyUrl: "https://platform.openai.com/api-keys", hint: "Paid", custom: false },
-  { id: "custom", label: "Custom (OpenAI-compatible)", keyUrl: "", hint: "aipipe, OpenRouter, local…", custom: true },
+  { id: "anthropic", label: "Anthropic Claude", keyUrl: "https://console.anthropic.com/settings/keys", hint: "Top accuracy", custom: false },
+  { id: "openai", label: "OpenAI (GPT-4o)", keyUrl: "https://platform.openai.com/api-keys", hint: "Paid", custom: false },
+  { id: "openrouter", label: "OpenRouter", keyUrl: "https://openrouter.ai/keys", hint: "100+ models", custom: false },
+  { id: "deepseek", label: "DeepSeek", keyUrl: "https://platform.deepseek.com/api_keys", hint: "Cheap, strong", custom: false },
+  { id: "mistral", label: "Mistral", keyUrl: "https://console.mistral.ai/api-keys", hint: "EU, free tier", custom: false },
+  { id: "custom", label: "Custom (OpenAI-compatible)", keyUrl: "", hint: "aipipe, local…", custom: true },
 ];
 
 function load() {

@@ -82,6 +82,7 @@ class GenerateRequest(BaseModel):
     llm_api_key: Optional[str] = None         # bring-your-own key (not stored)
     llm_base_url: Optional[str] = None        # for custom OpenAI-compatible endpoints
     llm_model: Optional[str] = None           # optional model override
+    no_cache: bool = False                    # force a fresh run, skip cache
 
 
 class JobSummary(BaseModel):
@@ -505,6 +506,25 @@ async def generate_report(req: GenerateRequest):
             detail=f"No filings ingested for {ticker}. Ingest a filing first "
                    f"(POST /api/ingest/samples for demo data).",
         )
+
+    # Cache: an identical (ticker, query) analysis with no follow-up context and
+    # no new filings since is deterministic enough to reuse — saves time + quota
+    # with zero accuracy cost (same sources, same verified brief). `no_cache`
+    # forces a fresh run.
+    if not req.context_report_id and not req.no_cache:
+        latest_filing = await db.filings.find_one(
+            {"ticker": ticker}, {"created_at": 1, "_id": 0}, sort=[("created_at", -1)]
+        )
+        cached = await db.reports.find_one(
+            {"ticker": ticker, "query": req.query.strip()},
+            {"id": 1, "created_at": 1, "fact_check_status": 1, "_id": 0},
+            sort=[("created_at", -1)],
+        )
+        if cached and (
+            not latest_filing
+            or cached.get("created_at", "") >= latest_filing.get("created_at", "")
+        ):
+            return {"job_id": cached["id"], "cached": True}
 
     job_id = str(uuid.uuid4())
     prior_brief = ""

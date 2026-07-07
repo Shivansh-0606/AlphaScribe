@@ -26,9 +26,12 @@ python-multipart>=0.0.9
 # jq>=1.6.0   # unused in code; requires a C build and fails to pip-install on Windows
 typer>=0.9.0
 
-# --- LLM providers (bring-your-own key: Gemini / OpenAI / Groq) ---
+# --- LLM providers (bring-your-own key) ---
+# gemini via google SDK; openai SDK covers openai/groq/openrouter/deepseek/
+# mistral/custom (OpenAI-compatible); anthropic via its own SDK.
 google-generativeai>=0.8.0
 openai>=1.40.0
+anthropic>=0.34.0
 
 # --- global company data (non-US fallback when SEC EDGAR has nothing) ---
 yfinance>=0.2.40

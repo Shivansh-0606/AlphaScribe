@@ -152,13 +152,17 @@ export default function Dashboard() {
 
     setSubmitting(true);
     try {
-      const { job_id } = await generateReport({
+      const { job_id, cached } = await generateReport({
         ticker: selected.ticker,
         query: query.trim(),
         ...llmPayload(),
       });
-      startJob(job_id, { ticker: selected.ticker, query: query.trim() });
-      toast.success(`Analyzing ${selected.name}…`);
+      if (cached) {
+        toast.success(`Cached report for ${selected.name} — open it or use Re-run for fresh`);
+      } else {
+        startJob(job_id, { ticker: selected.ticker, query: query.trim() });
+        toast.success(`Analyzing ${selected.name}…`);
+      }
       refresh?.();
       nav(`/reports/${job_id}`);
     } catch (err) {
