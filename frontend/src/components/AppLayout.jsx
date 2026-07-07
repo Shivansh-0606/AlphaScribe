@@ -224,10 +224,10 @@ function ActivityBar() {
           </button>
           <button
             onClick={() => cancelJob(j.id)}
-            title="Cancel this analysis"
+            title="Stop this analysis"
             className="mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-bearish inline-flex items-center gap-1 shrink-0"
           >
-            <XCircle size={13} /> kill
+            <XCircle size={13} /> stop
           </button>
         </div>
       ))}

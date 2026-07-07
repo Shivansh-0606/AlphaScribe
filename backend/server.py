@@ -78,8 +78,10 @@ class GenerateRequest(BaseModel):
     query: str
     context_report_id: Optional[str] = None   # if set, treat as a follow-up
                                               # and inject prior brief into synth
-    llm_provider: Optional[str] = None        # "gemini" | "openai" | "groq"
+    llm_provider: Optional[str] = None        # gemini|openai|groq|custom
     llm_api_key: Optional[str] = None         # bring-your-own key (not stored)
+    llm_base_url: Optional[str] = None        # for custom OpenAI-compatible endpoints
+    llm_model: Optional[str] = None           # optional model override
 
 
 class JobSummary(BaseModel):
@@ -374,9 +376,15 @@ async def list_tickers():
 async def _run_pipeline(job_id: str, ticker: str, query: str,
                         prior_brief: str = "",
                         llm_provider: str | None = None,
-                        llm_api_key: str | None = None) -> None:
+                        llm_api_key: str | None = None,
+                        llm_base_url: str | None = None,
+                        llm_model: str | None = None) -> None:
     from agents.llm import set_llm_context, reset_llm_context
-    _tok = set_llm_context(llm_provider, llm_api_key) if (llm_provider or llm_api_key) else None
+    _tok = (
+        set_llm_context(llm_provider, llm_api_key,
+                        light_model=llm_model, heavy_model=llm_model, base_url=llm_base_url)
+        if (llm_provider or llm_api_key) else None
+    )
     q = JOB_QUEUES[job_id]
     job = JOBS[job_id]
     job["status"] = "running"
@@ -527,7 +535,8 @@ async def generate_report(req: GenerateRequest):
     JOB_QUEUES[job_id] = asyncio.Queue()
     JOBS[job_id]["task"] = asyncio.create_task(
         _run_pipeline(job_id, ticker, req.query, prior_brief=prior_brief,
-                      llm_provider=req.llm_provider, llm_api_key=req.llm_api_key)
+                      llm_provider=req.llm_provider, llm_api_key=req.llm_api_key,
+                      llm_base_url=req.llm_base_url, llm_model=req.llm_model)
     )
     return {"job_id": job_id}
 

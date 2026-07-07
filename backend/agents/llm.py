@@ -30,6 +30,14 @@ PROVIDER_DEFAULTS = {
     "gemini": ("gemini-2.0-flash-lite", "gemini-2.0-flash"),
     "openai": ("gpt-4o-mini", "gpt-4o-mini"),
     "groq":   ("llama-3.1-8b-instant", "llama-3.3-70b-versatile"),
+    # "custom": any OpenAI-compatible endpoint (aipipe, OpenRouter, Together,
+    # local LLMs, etc). Requires base_url + model from the request.
+    "custom":  ("gpt-4o-mini", "gpt-4o-mini"),
+}
+
+# Built-in base URLs for OpenAI-compatible providers.
+PROVIDER_BASE_URL = {
+    "groq": "https://api.groq.com/openai/v1",
 }
 
 # Symbolic tiers — resolved to a concrete model at call time based on provider.
@@ -38,7 +46,8 @@ DEFAULT_HEAVY_MODEL = "__heavy__"
 
 
 def set_llm_context(provider: str | None, api_key: str | None,
-                    light_model: str | None = None, heavy_model: str | None = None):
+                    light_model: str | None = None, heavy_model: str | None = None,
+                    base_url: str | None = None):
     """Set the active provider/key for the current async context. Returns a token
     to reset later. No-op-ish if provider/key missing (falls back to env)."""
     return _LLM_CTX.set({
@@ -46,6 +55,7 @@ def set_llm_context(provider: str | None, api_key: str | None,
         "api_key": api_key or None,
         "light_model": light_model or None,
         "heavy_model": heavy_model or None,
+        "base_url": base_url or None,
     })
 
 
@@ -74,7 +84,8 @@ def _active() -> dict:
     d_light, d_heavy = PROVIDER_DEFAULTS.get(provider, PROVIDER_DEFAULTS["gemini"])
     light = ctx.get("light_model") or os.environ.get("LLM_LIGHT_MODEL") or d_light
     heavy = ctx.get("heavy_model") or os.environ.get("LLM_HEAVY_MODEL") or d_heavy
-    return {"provider": provider, "api_key": key, "light": light, "heavy": heavy}
+    base_url = ctx.get("base_url") or os.environ.get("LLM_BASE_URL") or PROVIDER_BASE_URL.get(provider)
+    return {"provider": provider, "api_key": key, "light": light, "heavy": heavy, "base_url": base_url}
 
 
 def _resolve_model(model: str, cfg: dict) -> str:
@@ -128,11 +139,10 @@ def _generate_sync(system: str, user: str, model: str) -> str:
     real_model = _resolve_model(model, cfg)
     if provider == "gemini":
         return _gen_gemini(system, user, real_model, key)
-    if provider == "openai":
-        return _gen_openai_compatible(system, user, real_model, key, None)
-    if provider == "groq":
-        return _gen_openai_compatible(system, user, real_model, key,
-                                      "https://api.groq.com/openai/v1")
+    # openai / groq / custom (aipipe, OpenRouter, Together, local, ...) all use
+    # the OpenAI-compatible chat API. base_url distinguishes them.
+    if provider in ("openai", "groq", "custom"):
+        return _gen_openai_compatible(system, user, real_model, key, cfg["base_url"])
     raise RuntimeError(f"Unknown LLM provider: {provider}")
 
 

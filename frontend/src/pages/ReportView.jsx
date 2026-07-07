@@ -193,7 +193,7 @@ export default function ReportView() {
                 data-testid="report-cancel"
                 className="mono text-[11px] uppercase tracking-widest h-8 px-3 border border-bearish text-bearish hover:bg-bearish hover:text-background inline-flex items-center gap-1"
               >
-                <XCircle size={12} /> Kill
+                <XCircle size={12} /> Stop
               </button>
             )}
             <span className="mono text-[10px] uppercase tracking-widest ml-2">
