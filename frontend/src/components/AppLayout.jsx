@@ -4,8 +4,9 @@ import { toast } from "sonner";
 import { deleteReport, listReports, listTickers, listCompanies, health } from "@/lib/api";
 import { useJobs } from "@/lib/jobs";
 import { APP } from "@/constants/testIds";
-import { Terminal, FileText, Upload, ChartLine, Scales, Trash, CircleNotch } from "@phosphor-icons/react";
+import { Terminal, FileText, Upload, ChartLine, Scales, Trash, CircleNotch, XCircle } from "@phosphor-icons/react";
 import ThemeToggle from "@/components/ThemeToggle";
+import LlmSettings from "@/components/LlmSettings";
 
 const NAV_CLS = ({ isActive }) =>
   `flex items-center gap-2 px-4 h-10 text-xs mono uppercase tracking-widest border-l-2 ${
@@ -177,6 +178,9 @@ export default function AppLayout() {
             {retr.reranker === "ready" ? "RERANK" : "—"}
           </span>
         </div>
+        <div className="border-t border-border">
+          <LlmSettings />
+        </div>
         <div className="px-4 py-2 border-t border-border flex items-center justify-between">
           <span className="label-mono !text-[9px]">Theme</span>
           <ThemeToggle />
@@ -200,30 +204,32 @@ const NODE_LABEL = {
 };
 
 function ActivityBar() {
-  const { jobs } = useJobs();
+  const { jobs, cancelJob } = useJobs();
   const nav = useNavigate();
   const active = Object.values(jobs).filter((j) => j.status === "running");
   if (active.length === 0) return null;
   return (
     <div className="sticky top-0 z-20 bg-surface border-b border-primary/40">
       {active.map((j) => (
-        <button
-          key={j.id}
-          onClick={() => nav(`/reports/${j.id}`)}
-          className="w-full flex items-center gap-2 px-6 h-9 text-left hover:bg-background/40"
-        >
+        <div key={j.id} className="w-full flex items-center gap-2 px-6 h-9 hover:bg-background/40">
           <CircleNotch size={13} className="text-brand animate-spin shrink-0" />
-          <span className="mono text-[11px] text-primary">{j.ticker || "…"}</span>
-          <span className="mono text-[10px] uppercase tracking-widest text-brand">
-            {NODE_LABEL[j.lastNode] || "analyzing"}
-          </span>
-          <span className="text-[11px] text-muted-foreground truncate hidden md:inline">
-            {j.query}
-          </span>
-          <span className="ml-auto mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            view →
-          </span>
-        </button>
+          <button onClick={() => nav(`/reports/${j.id}`)} className="flex items-center gap-2 min-w-0 flex-1 text-left">
+            <span className="mono text-[11px] text-primary">{j.ticker || "…"}</span>
+            <span className="mono text-[10px] uppercase tracking-widest text-brand">
+              {NODE_LABEL[j.lastNode] || "analyzing"}
+            </span>
+            <span className="text-[11px] text-muted-foreground truncate hidden md:inline">
+              {j.query}
+            </span>
+          </button>
+          <button
+            onClick={() => cancelJob(j.id)}
+            title="Cancel this analysis"
+            className="mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-bearish inline-flex items-center gap-1 shrink-0"
+          >
+            <XCircle size={13} /> kill
+          </button>
+        </div>
       ))}
     </div>
   );

@@ -49,10 +49,12 @@ graph = build_graph(db)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("alphascribe")
 
-# Surface the active LLM models at startup so it's obvious in the logs which
-# Gemini tier each stage uses (helps diagnose any quota / model-name issues).
-from agents.llm import DEFAULT_LIGHT_MODEL, DEFAULT_HEAVY_MODEL  # noqa: E402
-logger.info("LLM models — light=%s  heavy=%s", DEFAULT_LIGHT_MODEL, DEFAULT_HEAVY_MODEL)
+# Surface the active LLM provider at startup (helps diagnose quota/key issues).
+from agents.llm import _active  # noqa: E402
+_cfg = _active()
+logger.info("LLM provider=%s  light=%s  heavy=%s  key=%s",
+            _cfg["provider"], _cfg["light"], _cfg["heavy"],
+            "set" if _cfg["api_key"] else "MISSING")
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +78,8 @@ class GenerateRequest(BaseModel):
     query: str
     context_report_id: Optional[str] = None   # if set, treat as a follow-up
                                               # and inject prior brief into synth
+    llm_provider: Optional[str] = None        # "gemini" | "openai" | "groq"
+    llm_api_key: Optional[str] = None         # bring-your-own key (not stored)
 
 
 class JobSummary(BaseModel):
@@ -368,7 +372,11 @@ async def list_tickers():
 # ---------------------------------------------------------------------------
 
 async def _run_pipeline(job_id: str, ticker: str, query: str,
-                        prior_brief: str = "") -> None:
+                        prior_brief: str = "",
+                        llm_provider: str | None = None,
+                        llm_api_key: str | None = None) -> None:
+    from agents.llm import set_llm_context, reset_llm_context
+    _tok = set_llm_context(llm_provider, llm_api_key) if (llm_provider or llm_api_key) else None
     q = JOB_QUEUES[job_id]
     job = JOBS[job_id]
     job["status"] = "running"
@@ -445,6 +453,17 @@ async def _run_pipeline(job_id: str, ticker: str, query: str,
             "retry_count": report_doc["retry_count"],
             "ts": datetime.now(timezone.utc).isoformat(),
         })
+    except asyncio.CancelledError:
+        job["status"] = "cancelled"
+        await db.jobs.update_one(
+            {"id": job_id}, {"$set": {"status": "cancelled"}}
+        )
+        await push({
+            "node": "pipeline",
+            "status": "warn",
+            "message": "Analysis cancelled by user",
+            "ts": datetime.now(timezone.utc).isoformat(),
+        })
     except Exception as e:
         logger.exception("pipeline failed")
         job["status"] = "failed"
@@ -459,6 +478,8 @@ async def _run_pipeline(job_id: str, ticker: str, query: str,
             "ts": datetime.now(timezone.utc).isoformat(),
         })
     finally:
+        if _tok is not None:
+            reset_llm_context(_tok)
         await q.put(None)  # sentinel
 
 
@@ -504,8 +525,26 @@ async def generate_report(req: GenerateRequest):
         "events": [],
     })
     JOB_QUEUES[job_id] = asyncio.Queue()
-    asyncio.create_task(_run_pipeline(job_id, ticker, req.query, prior_brief=prior_brief))
+    JOBS[job_id]["task"] = asyncio.create_task(
+        _run_pipeline(job_id, ticker, req.query, prior_brief=prior_brief,
+                      llm_provider=req.llm_provider, llm_api_key=req.llm_api_key)
+    )
     return {"job_id": job_id}
+
+
+@api.post("/reports/{job_id}/cancel")
+async def cancel_report(job_id: str):
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    if job.get("status") in ("completed", "failed", "cancelled"):
+        return {"job_id": job_id, "status": job["status"], "note": "already finished"}
+    task = job.get("task")
+    if task and not task.done():
+        task.cancel()
+    job["status"] = "cancelled"
+    await db.jobs.update_one({"id": job_id}, {"$set": {"status": "cancelled"}})
+    return {"job_id": job_id, "status": "cancelled"}
 
 
 @api.get("/reports/{job_id}/stream")

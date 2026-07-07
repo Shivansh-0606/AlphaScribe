@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/lib/theme";
 import { JobsProvider } from "@/lib/jobs";
+import { LlmProvider } from "@/lib/llmSettings";
 import AppLayout from "@/components/AppLayout";
 import Dashboard from "@/pages/Dashboard";
 import ReportView from "@/pages/ReportView";
@@ -28,6 +29,7 @@ function App() {
           }}
         />
         <BrowserRouter>
+          <LlmProvider>
           <JobsProvider>
             <Routes>
               <Route element={<AppLayout />}>
@@ -39,6 +41,7 @@ function App() {
               </Route>
             </Routes>
           </JobsProvider>
+          </LlmProvider>
         </BrowserRouter>
       </div>
     </ThemeProvider>

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { generateReport, ensureCompany } from "@/lib/api";
 import { useJobs } from "@/lib/jobs";
+import { useLlm } from "@/lib/llmSettings";
 import { WatchlistStar } from "@/lib/watchlist";
 import PipelineLog from "@/components/PipelineLog";
 import ToneGauge from "@/components/ToneGauge";
@@ -11,11 +12,12 @@ import FinancialsTable from "@/components/FinancialsTable";
 import ResearchBrief from "@/components/ResearchBrief";
 import Scorecard from "@/components/Scorecard";
 import { REPORT } from "@/constants/testIds";
-import { CaretRight, DownloadSimple, LinkSimple, PaperPlaneRight, ArrowUUpLeft, DotsSixVertical, ArrowClockwise } from "@phosphor-icons/react";
+import { CaretRight, DownloadSimple, LinkSimple, PaperPlaneRight, ArrowUUpLeft, DotsSixVertical, ArrowClockwise, XCircle } from "@phosphor-icons/react";
 
 export default function ReportView() {
   const { id } = useParams();
-  const { jobs, ensureJob, startJob } = useJobs();
+  const { jobs, ensureJob, startJob, cancelJob } = useJobs();
+  const { payload: llmPayload } = useLlm();
 
   // The SSE stream lives in the global JobsProvider, so leaving this page does
   // NOT cancel the analysis — it keeps running and shows in the status bar.
@@ -109,6 +111,7 @@ export default function ReportView() {
         ticker,
         query: followup.trim(),
         context_report_id: id,
+        ...llmPayload(),
       });
       startJob(job_id, { ticker, query: followup.trim() });
       toast.success(`Follow-up dispatched for ${companyName || ticker}`);
@@ -184,9 +187,20 @@ export default function ReportView() {
                 </button>
               </>
             )}
+            {running && (
+              <button
+                onClick={() => cancelJob(id)}
+                data-testid="report-cancel"
+                className="mono text-[11px] uppercase tracking-widest h-8 px-3 border border-bearish text-bearish hover:bg-bearish hover:text-background inline-flex items-center gap-1"
+              >
+                <XCircle size={12} /> Kill
+              </button>
+            )}
             <span className="mono text-[10px] uppercase tracking-widest ml-2">
               {running ? (
                 <span className="text-brand terminal-cursor">executing</span>
+              ) : job.status === "cancelled" ? (
+                <span className="text-bearish">cancelled</span>
               ) : report?.fact_check_status ? (
                 <span className="text-bullish">complete · verified</span>
               ) : (

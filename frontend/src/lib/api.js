@@ -17,6 +17,8 @@ export const trendingCompanies = () =>
 export const getReport = (id) => http.get(`/reports/${id}`).then((r) => r.data);
 export const generateReport = (payload) =>
   http.post("/reports/generate", payload).then((r) => r.data);
+export const cancelReport = (jobId) =>
+  http.post(`/reports/${jobId}/cancel`).then((r) => r.data);
 export const compareReports = (report_ids) =>
   http.post("/reports/compare", { report_ids }).then((r) => r.data.reports);
 export const ingestText = (payload) => http.post("/ingest/text", payload).then((r) => r.data);

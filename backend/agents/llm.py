@@ -1,74 +1,146 @@
-"""Thin async wrapper around Google Gemini.
+"""Multi-provider LLM wrapper (Gemini / OpenAI / Groq).
 
 Provides `chat_json(...)` for structured Pydantic outputs and `chat_text(...)`
-for free-form text. Uses the Google Generative AI SDK with a free-tier API key.
+for free-form text. The active provider + API key can be set per-request via a
+contextvar (so users can bring their own key in the UI), falling back to
+environment variables for local/dev use.
 
-The public surface (`chat_text`, `chat_json`, `DEFAULT_LIGHT_MODEL`,
-`DEFAULT_HEAVY_MODEL`) is unchanged from the original implementation so the
-agent nodes require no modification.
+Public surface (`chat_text`, `chat_json`, `DEFAULT_LIGHT_MODEL`,
+`DEFAULT_HEAVY_MODEL`) is unchanged, so the agent nodes need no modification.
 """
 from __future__ import annotations
 import asyncio
 import json
 import os
 import re
+from contextvars import ContextVar
 from typing import Type, TypeVar
 from pydantic import BaseModel, ValidationError
 
-import google.generativeai as genai
-
 T = TypeVar("T", bound=BaseModel)
 
-# Gemini model tiers, chosen to stay within the free-tier quota:
-#   - light (extraction/tone/routing): flash-lite — fast, highest free quota
-#   - heavy (synthesis/fact-check): flash — stronger, still free-tier friendly
-# `gemini-2.5-pro` is intentionally avoided as the default: the free tier
-# rate-limits it aggressively. Override via env to use it on a paid key.
-DEFAULT_LIGHT_MODEL = os.environ.get("GEMINI_LIGHT_MODEL", "gemini-2.5-flash-lite")  # extraction / routing
-DEFAULT_HEAVY_MODEL = os.environ.get("GEMINI_HEAVY_MODEL", "gemini-2.5-flash")       # synthesis / fact-check
+# Per-request LLM credentials. Set by the API layer from request headers; falls
+# back to environment variables when unset (local dev / .env).
+#   {"provider": "gemini"|"openai"|"groq", "api_key": "...",
+#    "light_model": "...", "heavy_model": "..."}
+_LLM_CTX: ContextVar[dict | None] = ContextVar("_LLM_CTX", default=None)
 
-_CONFIGURED = False
+# Sensible free-tier-friendly defaults per provider.
+PROVIDER_DEFAULTS = {
+    "gemini": ("gemini-2.0-flash-lite", "gemini-2.0-flash"),
+    "openai": ("gpt-4o-mini", "gpt-4o-mini"),
+    "groq":   ("llama-3.1-8b-instant", "llama-3.3-70b-versatile"),
+}
+
+# Symbolic tiers — resolved to a concrete model at call time based on provider.
+DEFAULT_LIGHT_MODEL = "__light__"
+DEFAULT_HEAVY_MODEL = "__heavy__"
 
 
-def _api_key() -> str:
-    key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+def set_llm_context(provider: str | None, api_key: str | None,
+                    light_model: str | None = None, heavy_model: str | None = None):
+    """Set the active provider/key for the current async context. Returns a token
+    to reset later. No-op-ish if provider/key missing (falls back to env)."""
+    return _LLM_CTX.set({
+        "provider": (provider or "").lower() or None,
+        "api_key": api_key or None,
+        "light_model": light_model or None,
+        "heavy_model": heavy_model or None,
+    })
+
+
+def reset_llm_context(token) -> None:
+    try:
+        _LLM_CTX.reset(token)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _active() -> dict:
+    """Resolve provider + key + models from context, else environment."""
+    ctx = _LLM_CTX.get() or {}
+    provider = ctx.get("provider") or os.environ.get("LLM_PROVIDER") or "gemini"
+    provider = provider.lower()
+
+    key = ctx.get("api_key")
     if not key:
-        raise RuntimeError(
-            "GEMINI_API_KEY not set in backend/.env — get a free key at "
-            "https://aistudio.google.com/apikey"
-        )
-    return key
+        if provider == "gemini":
+            key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        elif provider == "openai":
+            key = os.environ.get("OPENAI_API_KEY")
+        elif provider == "groq":
+            key = os.environ.get("GROQ_API_KEY")
+
+    d_light, d_heavy = PROVIDER_DEFAULTS.get(provider, PROVIDER_DEFAULTS["gemini"])
+    light = ctx.get("light_model") or os.environ.get("LLM_LIGHT_MODEL") or d_light
+    heavy = ctx.get("heavy_model") or os.environ.get("LLM_HEAVY_MODEL") or d_heavy
+    return {"provider": provider, "api_key": key, "light": light, "heavy": heavy}
 
 
-def _ensure_configured() -> None:
-    global _CONFIGURED
-    if not _CONFIGURED:
-        genai.configure(api_key=_api_key())
-        _CONFIGURED = True
+def _resolve_model(model: str, cfg: dict) -> str:
+    if model == DEFAULT_LIGHT_MODEL:
+        return cfg["light"]
+    if model == DEFAULT_HEAVY_MODEL:
+        return cfg["heavy"]
+    return model
 
 
-def _generate_sync(system: str, user: str, model: str) -> str:
-    """Blocking Gemini call — run inside a thread by the async wrappers."""
-    _ensure_configured()
+# --------------------------------------------------------------------------
+# Provider backends (blocking; run in a thread)
+# --------------------------------------------------------------------------
+def _gen_gemini(system: str, user: str, model: str, key: str) -> str:
+    import google.generativeai as genai
+    genai.configure(api_key=key)
     gm = genai.GenerativeModel(model_name=model, system_instruction=system)
     resp = gm.generate_content(user)
-    # `.text` raises if the response was blocked/empty; fall back defensively.
     try:
-        text = resp.text
+        return resp.text or ""
     except Exception:  # noqa: BLE001
         parts = []
         for cand in getattr(resp, "candidates", []) or []:
-            content = getattr(cand, "content", None)
-            for part in getattr(content, "parts", []) or []:
+            for part in getattr(getattr(cand, "content", None), "parts", []) or []:
                 if getattr(part, "text", None):
                     parts.append(part.text)
-        text = "\n".join(parts)
-    return text or ""
+        return "\n".join(parts)
+
+
+def _gen_openai_compatible(system: str, user: str, model: str, key: str, base_url: str | None) -> str:
+    # openai>=1.0 SDK; Groq is OpenAI-compatible via base_url.
+    from openai import OpenAI
+    client = OpenAI(api_key=key, base_url=base_url) if base_url else OpenAI(api_key=key)
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "system", "content": system},
+                  {"role": "user", "content": user}],
+        temperature=0.3,
+    )
+    return resp.choices[0].message.content or ""
+
+
+def _generate_sync(system: str, user: str, model: str) -> str:
+    cfg = _active()
+    provider, key = cfg["provider"], cfg["api_key"]
+    if not key:
+        raise RuntimeError(
+            f"No API key for provider '{provider}'. Set it in backend/.env or "
+            "paste a key in the app (Settings)."
+        )
+    real_model = _resolve_model(model, cfg)
+    if provider == "gemini":
+        return _gen_gemini(system, user, real_model, key)
+    if provider == "openai":
+        return _gen_openai_compatible(system, user, real_model, key, None)
+    if provider == "groq":
+        return _gen_openai_compatible(system, user, real_model, key,
+                                      "https://api.groq.com/openai/v1")
+    raise RuntimeError(f"Unknown LLM provider: {provider}")
 
 
 def _retry_after_seconds(err: Exception) -> float | None:
-    """Extract the server-suggested retry delay from a 429 error, if present."""
     m = re.search(r"retry_delay\s*\{\s*seconds:\s*(\d+)", str(err))
+    if m:
+        return float(m.group(1))
+    m = re.search(r"try again in ([\d.]+)s", str(err), re.IGNORECASE)
     return float(m.group(1)) if m else None
 
 
@@ -81,9 +153,6 @@ async def chat_text(system: str, user: str, *, model: str = DEFAULT_HEAVY_MODEL)
             last_err = e
             if attempt == 3:
                 break
-            # On a rate-limit (429), wait the server-suggested delay; otherwise
-            # back off exponentially. Never auto-escalate to a heavier model —
-            # that only makes quota pressure worse on the free tier.
             wait = _retry_after_seconds(e)
             if wait is None:
                 wait = 2.0 * (attempt + 1)
@@ -116,13 +185,11 @@ async def chat_json(
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        # last-ditch: extract first {...} object or [...] array block
         m = re.search(r"\{.*\}|\[.*\]", raw, re.DOTALL)
         if not m:
             raise ValueError(f"LLM did not return JSON: {raw[:400]}")
         data = json.loads(m.group(0))
-    # The model sometimes returns a bare array when the schema wraps a single
-    # list field (e.g. FactCheckSchema -> {"claims": [...]}). Wrap it.
+    # Model sometimes returns a bare array when schema wraps one list field.
     if isinstance(data, list):
         list_fields = [
             name for name, f in schema.model_fields.items()

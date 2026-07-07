@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { toast } from "sonner";
 import { listReports, compareReports } from "@/lib/api";
+import { usePersistedState } from "@/lib/persist";
 import { COMPARE } from "@/constants/testIds";
 import { Scales, CheckSquare, Square, CheckCircle, Warning, Funnel, MagnifyingGlass, X } from "@phosphor-icons/react";
 import ReactMarkdown from "react-markdown";
@@ -62,11 +63,11 @@ function QualityChart({ loaded, companies }) {
 
 export default function Compare() {
   const [reports, setReports] = useState([]);
-  const [selected, setSelected] = useState([]);   // list of ids
-  const [loaded, setLoaded] = useState([]);
+  const [selected, setSelected] = usePersistedState("compare:selected", []);   // list of ids
+  const [loaded, setLoaded] = usePersistedState("compare:loaded", []);
   const [loading, setLoading] = useState(false);
-  const [qualityFilter, setQualityFilter] = useState(false); // Grade >= 80%
-  const [search, setSearch] = useState("");
+  const [qualityFilter, setQualityFilter] = usePersistedState("compare:qfilter", false);
+  const [search, setSearch] = usePersistedState("compare:search", "");
   const { companies = {} } = useOutletContext() || {};
 
   useEffect(() => {

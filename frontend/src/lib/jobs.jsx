@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useRef, useState } from "react";
-import { streamJob, getReport } from "@/lib/api";
+import { streamJob, getReport, cancelReport } from "@/lib/api";
 
 /**
  * Global job store. Owns the SSE connections ABOVE the router, so a running
@@ -8,7 +8,7 @@ import { streamJob, getReport } from "@/lib/api";
  * anywhere in the app.
  */
 const JobsCtx = createContext(null);
-export const useJobs = () => useContext(JobsCtx) || { jobs: {}, ensureJob: () => {}, startJob: () => {} };
+export const useJobs = () => useContext(JobsCtx) || { jobs: {}, ensureJob: () => {}, startJob: () => {}, cancelJob: () => {} };
 
 export function JobsProvider({ children }) {
   const [jobs, setJobs] = useState({}); // id -> {id,status,events,report,ticker,query,lastNode}
@@ -83,8 +83,15 @@ export function JobsProvider({ children }) {
     attach(id);
   }, [attach, patch]);
 
+  const cancelJob = useCallback((id) => {
+    closers.current[id]?.();          // close SSE
+    delete closers.current[id];
+    patch(id, () => ({ status: "cancelled" }));
+    cancelReport(id).catch(() => {}); // tell backend to stop the task
+  }, [patch]);
+
   return (
-    <JobsCtx.Provider value={{ jobs, ensureJob, startJob }}>
+    <JobsCtx.Provider value={{ jobs, ensureJob, startJob, cancelJob }}>
       {children}
     </JobsCtx.Provider>
   );

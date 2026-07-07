@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import { DASHBOARD } from "@/constants/testIds";
 import { useJobs } from "@/lib/jobs";
+import { useLlm } from "@/lib/llmSettings";
 import CompanyCombobox from "@/components/CompanyCombobox";
 import { useWatchlist } from "@/lib/watchlist";
 import {
@@ -73,6 +74,7 @@ export default function Dashboard() {
   const searchRef = useRef(null);
   const nav = useNavigate();
   const { startJob } = useJobs();
+  const { payload: llmPayload } = useLlm();
   const { refresh, companies = {} } = useOutletContext() || {};
   const { watchlist } = useWatchlist();
 
@@ -153,6 +155,7 @@ export default function Dashboard() {
       const { job_id } = await generateReport({
         ticker: selected.ticker,
         query: query.trim(),
+        ...llmPayload(),
       });
       startJob(job_id, { ticker: selected.ticker, query: query.trim() });
       toast.success(`Analyzing ${selected.name}…`);

@@ -3,6 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { toast } from "sonner";
 import { ingestAudio, ingestEdgar, ingestSamples, ingestText, listFilings } from "@/lib/api";
 import { INGEST } from "@/constants/testIds";
+import { usePersistedState } from "@/lib/persist";
 import { Upload, Database, Globe, Microphone, Waveform } from "@phosphor-icons/react";
 
 const TABS = [
@@ -13,17 +14,17 @@ const TABS = [
 ];
 
 export default function Ingest() {
-  const [tab, setTab] = useState("text");
-  const [ticker, setTicker] = useState("");
-  const [companyName, setCompanyName] = useState("");
-  const [source, setSource] = useState("");
-  const [text, setText] = useState("");
-  const [edgarTicker, setEdgarTicker] = useState("");
-  const [edgarForm, setEdgarForm] = useState("10-Q");
-  const [audioTicker, setAudioTicker] = useState("");
-  const [audioCompany, setAudioCompany] = useState("");
-  const [audioSource, setAudioSource] = useState("Earnings Call");
-  const [audioLang, setAudioLang] = useState("en");
+  const [tab, setTab] = usePersistedState("ingest:tab", "text");
+  const [ticker, setTicker] = usePersistedState("ingest:ticker", "");
+  const [companyName, setCompanyName] = usePersistedState("ingest:companyName", "");
+  const [source, setSource] = usePersistedState("ingest:source", "");
+  const [text, setText] = usePersistedState("ingest:text", "");
+  const [edgarTicker, setEdgarTicker] = usePersistedState("ingest:edgarTicker", "");
+  const [edgarForm, setEdgarForm] = usePersistedState("ingest:edgarForm", "10-Q");
+  const [audioTicker, setAudioTicker] = usePersistedState("ingest:audioTicker", "");
+  const [audioCompany, setAudioCompany] = usePersistedState("ingest:audioCompany", "");
+  const [audioSource, setAudioSource] = usePersistedState("ingest:audioSource", "Earnings Call");
+  const [audioLang, setAudioLang] = usePersistedState("ingest:audioLang", "en");
   const [audioFile, setAudioFile] = useState(null);
   const [filings, setFilings] = useState([]);
   const [loading, setLoading] = useState(null);
