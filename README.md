@@ -160,6 +160,27 @@ Snapshot, Bull Thesis, Bear / Risks, Financial Deep-Dive), and watch the
 multi-agent pipeline stream a fact-checked brief. The sidebar shows coverage,
 history with quality scores, the active retrieval mode, and the current LLM provider.
 
+### Research brief — grounded and cited
+
+![Cited research brief](docs/report.png)
+
+Every brief is written with inline `[1]`/`[2]` citations back to the source
+filing. The header shows the run status (**COMPLETE · VERIFIED**) with one-click
+Markdown / PDF export and a Re-run button.
+
+### Compare — portfolio view
+
+![Compare page with quality chart](docs/compare_charts.png)
+
+Select multiple past reports and compare them side by side. The Quality &
+Confidence chart plots each company's scorecard metrics against the others.
+
+![Side-by-side company columns](docs/compare_breifs.png)
+
+Per-company columns line up management tone, extracted financials, and the full
+quality breakdown (faithfulness, context precision, answer relevance) for a
+direct read across the portfolio.
+
 ---
 
 ## License
