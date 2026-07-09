@@ -496,7 +496,7 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-4">
             <DownloadSimple size={12} />
-            <span>Every brief is downloadable as Markdown</span>
+            <span>Every brief is downloadable as Markdown &amp; PDF</span>
           </div>
         </div>
       </div>
