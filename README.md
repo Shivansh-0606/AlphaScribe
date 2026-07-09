@@ -8,7 +8,9 @@ extracts the financials, gauges management tone, writes a cited brief, and then
 draft if anything is unsupported.
 
 > Built with a LangGraph agent pipeline, hybrid RAG retrieval (BM25 + dense
-> embeddings + cross-encoder re-ranking), and Google Gemini.
+> embeddings + cross-encoder re-ranking), and your choice of LLM — Gemini,
+> OpenAI, Anthropic, Groq, OpenRouter, DeepSeek, Mistral, or any
+> OpenAI-compatible endpoint.
 
 ---
 
@@ -25,7 +27,8 @@ draft if anything is unsupported.
   faithfulness, context precision, and answer relevance.
 - **Multiple ingest paths:** paste text, auto-fetch the latest 10-Q/10-K from
   **SEC EDGAR**, load bundled demo filings, or upload an **earnings-call audio**
-  file (transcribed with Gemini).
+  file (transcription uses Gemini and needs a `GEMINI_API_KEY`, regardless of
+  which provider writes the brief).
 - **Live pipeline streaming:** watch each agent's progress in real time over
   Server-Sent Events.
 - **Compare & follow-up:** compare multiple reports side by side and ask
@@ -73,7 +76,7 @@ draft if anything is unsupported.
 |-------|------|
 | Frontend | React 19, React Router, shadcn/ui, Tailwind, Recharts, Framer Motion |
 | Backend | FastAPI, LangGraph, Pydantic, Motor (async MongoDB) |
-| AI / ML | Google Gemini (`gemini-1.5-flash` / `gemini-1.5-pro`), hybrid RAG: `rank-bm25` + `fastembed` dense embeddings + cross-encoder re-ranking |
+| AI / ML | Pluggable LLM provider — Gemini, OpenAI, Anthropic, Groq, OpenRouter, DeepSeek, Mistral, or any OpenAI-compatible endpoint (each with sensible light/heavy model defaults); hybrid RAG: `rank-bm25` + `fastembed` dense embeddings + cross-encoder re-ranking |
 | Data | MongoDB, SEC EDGAR |
 
 ---
@@ -155,7 +158,8 @@ run.py / run.bat         one-command local launcher
 
 ![AlphaScribe dashboard](docs/dashboard.png)
 
-The home screen: search any US-listed company, pick a preset question (Quarter
+The home screen: search any US- or India-listed company (SEC EDGAR plus bundled
+NSE/BSE tickers), pick a preset question (Quarter
 Snapshot, Bull Thesis, Bear / Risks, Financial Deep-Dive), and watch the
 multi-agent pipeline stream a fact-checked brief. The sidebar shows coverage,
 history with quality scores, the active retrieval mode, and the current LLM provider.
