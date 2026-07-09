@@ -133,8 +133,21 @@ def _gen_openai_compatible(system: str, user: str, model: str, key: str, base_ur
         messages=[{"role": "system", "content": system},
                   {"role": "user", "content": user}],
         temperature=0.3,
+        # Cap output: without this, OpenRouter reserves the model's max output
+        # (e.g. 64K) from your credit balance and 402s on low-credit accounts.
+        # The pipeline's largest output (the brief) is prompted to <500 words
+        # (~700 tokens), so 2048 leaves ~3x headroom. Raise via env if needed.
+        max_tokens=int(os.environ.get("LLM_MAX_OUTPUT_TOKENS", "2048")),
     )
-    return resp.choices[0].message.content or ""
+    choice = resp.choices[0]
+    if choice.finish_reason == "length":
+        # Surface truncation instead of letting a cut-off brief flow into the
+        # fact-checker as if it were complete.
+        raise RuntimeError(
+            "LLM output was truncated by the max_tokens cap "
+            "(LLM_MAX_OUTPUT_TOKENS). Raise it in backend/.env and retry."
+        )
+    return choice.message.content or ""
 
 
 def _gen_anthropic(system: str, user: str, model: str, key: str) -> str:
