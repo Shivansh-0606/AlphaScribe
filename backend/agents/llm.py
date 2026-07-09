@@ -29,9 +29,9 @@ _LLM_CTX: ContextVar[dict | None] = ContextVar("_LLM_CTX", default=None)
 PROVIDER_DEFAULTS = {
     "gemini":     ("gemini-2.0-flash-lite", "gemini-2.0-flash"),
     "openai":     ("gpt-4o-mini", "gpt-4o"),
-    "anthropic":  ("claude-3-5-haiku-latest", "claude-3-5-sonnet-latest"),
+    "anthropic":  ("claude-haiku-4-5", "claude-sonnet-4-6"),
     "groq":       ("llama-3.1-8b-instant", "llama-3.3-70b-versatile"),
-    "openrouter": ("openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet"),
+    "openrouter": ("openai/gpt-4o-mini", "anthropic/claude-sonnet-4.5"),
     "deepseek":   ("deepseek-chat", "deepseek-chat"),
     "mistral":    ("mistral-small-latest", "mistral-large-latest"),
     # any OpenAI-compatible endpoint (aipipe, local LLMs). base_url from request.

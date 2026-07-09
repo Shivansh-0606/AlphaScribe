@@ -64,11 +64,9 @@ export default function LlmSettings() {
       {open && createPortal(
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
-          onClick={() => setOpen(false)}
         >
           <div
             className="w-full max-w-md border border-border shadow-2xl bg-[hsl(var(--background))]"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="h-12 px-4 flex items-center border-b border-border bg-[hsl(var(--surface))]">
               <Gear size={15} className="text-primary mr-2" />
