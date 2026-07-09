@@ -84,12 +84,23 @@ draft if anything is unsupported.
 [Node.js 18+](https://nodejs.org/). You do **not** need to install MongoDB —
 the launcher downloads a portable copy into the project.
 
-1. **Get a free Gemini API key** at
-   [aistudio.google.com/apikey](https://aistudio.google.com/apikey) and paste it
-   into `backend/.env`:
-   ```
-   GEMINI_API_KEY=your_key_here
-   ```
+1. **Add an LLM key from any supported provider.** AlphaScribe is provider-agnostic
+   — pick whichever you already have. Two ways to set it:
+   - **In the app (easiest):** open **LLM Key** in the sidebar, choose a provider,
+     and paste your key. It's stored in your browser only and sent per-request.
+   - **In `backend/.env`** as a server default, using that provider's variable:
+     ```
+     GEMINI_API_KEY=your_key_here       # Google Gemini  — free tier
+     GROQ_API_KEY=your_key_here         # Groq (Llama)   — free, fast
+     ANTHROPIC_API_KEY=your_key_here    # Anthropic Claude
+     OPENAI_API_KEY=your_key_here       # OpenAI (GPT-4o)
+     OPENROUTER_API_KEY=your_key_here   # OpenRouter (100+ models)
+     DEEPSEEK_API_KEY=your_key_here     # DeepSeek
+     MISTRAL_API_KEY=your_key_here      # Mistral
+     ```
+   Any **OpenAI-compatible** endpoint (aipipe, a local Ollama/LM Studio server, …)
+   also works via the **Custom** provider — no key cost at all if you self-host.
+   Google's Gemini free tier is the simplest zero-cost option to start.
 2. **Start everything** — double-click **`run.bat`** (Windows) or run:
    ```bash
    python run.py
@@ -114,7 +125,7 @@ backend/
     graph.py             LangGraph pipeline definition
     nodes.py             retriever / extractor / tone / synthesizer / fact-checker
     retrieval.py         hybrid BM25 + dense + cross-encoder retrieval
-    llm.py               Google Gemini wrapper (structured + free-form output)
+    llm.py               multi-provider LLM wrapper (Gemini / OpenAI / Anthropic / Groq / …)
     scoring.py           RAGAS-style quality scorecard
     ingest.py            SEC EDGAR fetch + document chunking
 frontend/
@@ -129,19 +140,25 @@ run.py / run.bat         one-command local launcher
 
 - `backend/.env` holds your API key and is git-ignored — never commit it.
   Use `backend/.env.example` as the template.
-- The AI features require a valid `GEMINI_API_KEY`. Google's free tier is
-  sufficient for local use and demos.
+- The AI features need a valid key from **any one** supported provider (Gemini,
+  Groq, Anthropic, OpenAI, OpenRouter, DeepSeek, Mistral, or any OpenAI-compatible
+  endpoint). Free tiers (Gemini, Groq) or a self-hosted local model are enough for
+  local use and demos.
+- Keys pasted in the app's **LLM Key** panel live in your browser and never touch
+  the server beyond the single request that uses them.
 
 ---
 
 ## 📸 Screenshots
 
-<!-- Add screenshots or a short demo GIF here for your portfolio:
-     ![Dashboard](docs/dashboard.png)
-     ![Report](docs/report.png)
--->
+### Dashboard — ask a company a question
 
-_Add a demo GIF or screenshots here._
+![AlphaScribe dashboard](docs/dashboard.png)
+
+The home screen: search any US-listed company, pick a preset question (Quarter
+Snapshot, Bull Thesis, Bear / Risks, Financial Deep-Dive), and watch the
+multi-agent pipeline stream a fact-checked brief. The sidebar shows coverage,
+history with quality scores, the active retrieval mode, and the current LLM provider.
 
 ---
 
