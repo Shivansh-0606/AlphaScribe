@@ -175,7 +175,7 @@ Markdown / PDF export and a Re-run button.
 Select multiple past reports and compare them side by side. The Quality &
 Confidence chart plots each company's scorecard metrics against the others.
 
-![Side-by-side company columns](docs/compare_breifs.png)
+![Side-by-side company columns](docs/compare_briefs.png)
 
 Per-company columns line up management tone, extracted financials, and the full
 quality breakdown (faithfulness, context precision, answer relevance) for a
