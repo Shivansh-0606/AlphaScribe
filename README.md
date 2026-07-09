@@ -62,7 +62,7 @@ draft if anything is unsupported.
                                     │
                  ┌──────────────────┼──────────────────┐
                  ▼                  ▼                  ▼
-             MongoDB         Google Gemini        SEC EDGAR
+             MongoDB             AI Model        SEC EDGAR
         (filings, chunks,   (extraction, synth,  (filing fetch)
          reports, jobs)      fact-check, audio)
 ```
