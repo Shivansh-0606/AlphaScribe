@@ -154,6 +154,13 @@ run.py / run.bat         one-command local launcher
 
 ## 📸 Screenshots
 
+### Landing — ask a company a question, get a fact-checked answer
+
+![AlphaScribe landing page](docs/landing_page.png)
+
+The marketing home page: a one-line pitch, a live demo terminal, and links into
+the app and docs.
+
 ### Dashboard — ask a company a question
 
 ![AlphaScribe dashboard](docs/dashboard.png)
