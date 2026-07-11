@@ -1,9 +1,14 @@
 import { Star } from "@phosphor-icons/react";
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 const KEY = "alphascribe:watchlist:v1";
 
-export function readWatchlist() {
+// Single shared store so every useWatchlist() consumer (sidebar, report star,
+// dashboard) stays in sync live — starring anywhere updates everywhere with no
+// refresh. useSyncExternalStore subscribes each component to the same source.
+const listeners = new Set();
+
+function read() {
   try {
     return JSON.parse(localStorage.getItem(KEY) || "[]");
   } catch {
@@ -11,31 +16,54 @@ export function readWatchlist() {
   }
 }
 
-export function useWatchlist() {
-  const [list, setList] = useState(() => readWatchlist());
+let current = read();
 
-  const persist = useCallback((next) => {
-    localStorage.setItem(KEY, JSON.stringify(next));
-    setList(next);
-  }, []);
+function write(next) {
+  current = next;
+  localStorage.setItem(KEY, JSON.stringify(next));
+  listeners.forEach((l) => l());
+}
+
+if (typeof window !== "undefined") {
+  // keep other tabs in sync too
+  window.addEventListener("storage", (e) => {
+    if (e.key === KEY) {
+      current = read();
+      listeners.forEach((l) => l());
+    }
+  });
+}
+
+function subscribe(cb) {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
+}
+
+export function readWatchlist() {
+  return current;
+}
+
+export function useWatchlist() {
+  const list = useSyncExternalStore(subscribe, readWatchlist);
 
   const isWatched = useCallback(
-    (ticker) => list.some((r) => r.ticker === ticker.toUpperCase()),
-    [list],
+    (ticker) => current.some((r) => r.ticker === ticker.toUpperCase()),
+    [],
   );
 
-  const toggle = useCallback(
-    (row) => {
-      const tk = row.ticker.toUpperCase();
-      const next = list.some((r) => r.ticker === tk)
-        ? list.filter((r) => r.ticker !== tk)
-        : [{ ticker: tk, name: row.name }, ...list].slice(0, 20);
-      persist(next);
-    },
-    [list, persist],
-  );
+  const toggle = useCallback((row) => {
+    const tk = row.ticker.toUpperCase();
+    const next = current.some((r) => r.ticker === tk)
+      ? current.filter((r) => r.ticker !== tk)
+      : [{ ticker: tk, name: row.name }, ...current].slice(0, 20);
+    write(next);
+  }, []);
 
-  return { watchlist: list, toggle, isWatched };
+  const remove = useCallback((ticker) => {
+    write(current.filter((r) => r.ticker !== ticker.toUpperCase()));
+  }, []);
+
+  return { watchlist: list, toggle, isWatched, remove };
 }
 
 export function WatchlistStar({ row, size = 14 }) {

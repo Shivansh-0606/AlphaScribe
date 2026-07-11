@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 from .state import AgentState
 from .schemas import FinancialsSchema, ToneSchema, FactCheckSchema
-from .llm import chat_json, chat_text, DEFAULT_LIGHT_MODEL, DEFAULT_HEAVY_MODEL
+from .llm import chat_json, chat_text, _strip_code_fence, DEFAULT_LIGHT_MODEL, DEFAULT_HEAVY_MODEL
 
 
 def _event(node: str, status: str, message: str, **extra) -> dict:
@@ -170,6 +170,9 @@ async def synthesizer_node(state: AgentState) -> dict:
     )
     try:
         draft = await chat_text(system, user, model=DEFAULT_HEAVY_MODEL)
+        # Heavy model sometimes wraps the whole brief in a ```markdown fence, which
+        # then renders as one giant code block in the UI. Unwrap it.
+        draft = _strip_code_fence(draft)
         return {
             "draft_report": draft.strip(),
             "trace": [_event("synthesizer", "ok",
@@ -237,7 +240,8 @@ async def fact_checker_node(state: AgentState) -> dict:
     user = (
         f"SOURCE EXCERPTS:\n{_format_docs(docs)}\n\n"
         f"CLAIMS TO CHECK:\n{claim_list}\n\n"
-        "Return one entry per claim in order."
+        "Return one entry per claim, in the same order. For each entry copy the "
+        "claim text verbatim into the \"claim\" field (do not return only an index)."
     )
     try:
         result: FactCheckSchema = await chat_json(system, user, FactCheckSchema,
@@ -250,6 +254,14 @@ async def fact_checker_node(state: AgentState) -> dict:
             "retry_count": retry + 1,
             "trace": [_event("fact_checker", "error", f"Fact-check failed: {e}")],
         }
+
+    # The model may reference each claim by index (claim_id) instead of echoing
+    # its text; backfill from the original list so display + errors are meaningful.
+    for idx, c in enumerate(result.claims):
+        if not c.claim:
+            i = (c.claim_id - 1) if c.claim_id else idx
+            if 0 <= i < len(claims):
+                c.claim = claims[i]
 
     errors: list[str] = []
     verified = [c.model_dump() for c in result.claims]

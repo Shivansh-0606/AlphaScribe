@@ -62,9 +62,9 @@ export default function ResearchBrief({ report }) {
           {errors?.length > 0 && (
             <div className="mt-6 p-4 border border-bearish/60 bg-bearish/5">
               <div className="label-mono !text-bearish mb-2">Unresolved Fact-Check Issues</div>
-              <ul className="mono text-xs space-y-1">
+              <ul className="mono text-xs space-y-1 list-disc pl-5 marker:text-bearish/60">
                 {errors.map((e, i) => (
-                  <li key={i} className="text-bearish/90">- {e}</li>
+                  <li key={i} className="text-bearish/90">{e}</li>
                 ))}
               </ul>
             </div>

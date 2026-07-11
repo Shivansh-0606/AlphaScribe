@@ -23,7 +23,8 @@ class ToneSchema(BaseModel):
 
 
 class ClaimCheck(BaseModel):
-    claim: str = Field(description="A specific factual/numeric claim from the draft")
+    claim: str = Field(default="", description="A specific factual/numeric claim from the draft")
+    claim_id: Optional[int] = Field(default=None, description="1-based index of the checked claim, if the model references it by number")
     supported: bool = Field(description="Whether the claim is directly supported by source docs")
     evidence: Optional[str] = Field(default=None, description="Quoted supporting text, if any")
     reason: Optional[str] = Field(default=None, description="Explanation when not supported")

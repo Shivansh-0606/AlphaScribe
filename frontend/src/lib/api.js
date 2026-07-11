@@ -40,6 +40,17 @@ export const ingestAudio = ({ file, ticker, source, company_name, language }) =>
     timeout: 180000,
   }).then((r) => r.data);
 };
+export const ingestPdf = ({ file, ticker, source, company_name }) => {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("ticker", ticker);
+  if (source) fd.append("source", source);
+  if (company_name) fd.append("company_name", company_name);
+  return http.post("/ingest/pdf", fd, {
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 180000,
+  }).then((r) => r.data);
+};
 export const health = () => http.get("/health").then((r) => r.data);
 
 /** Subscribe to SSE for a job. Returns a close() function. */
