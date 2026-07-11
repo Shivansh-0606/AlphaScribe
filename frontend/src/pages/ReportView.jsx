@@ -50,6 +50,10 @@ export default function ReportView() {
         toast.success(
           `Latest filing (${r.filing_date || "unknown date"}) added — ${r.num_chunks} new chunks. Run a fresh analysis to use it.`,
         );
+      } else if (r.action === "ingested_from_bse") {
+        toast.success(
+          `${r.source} added — ${r.num_chunks} new chunks. Run a fresh analysis to use it.`,
+        );
       } else {
         toast.success("Already up to date");
       }
@@ -185,7 +189,7 @@ export default function ReportView() {
       <div className="sticky top-0 z-10 bg-background border-b border-border">
         <div className="h-14 px-6 flex items-center gap-3">
           <button
-            onClick={() => nav("/")}
+            onClick={() => nav("/app")}
             data-testid="back-to-home"
             className="mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-primary inline-flex items-center gap-1"
           >

@@ -20,7 +20,13 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 from agents.graph import build_graph
-from agents.ingest import fetch_edgar_latest, fetch_yfinance, ingest_document
+from agents.ingest import (
+    extract_pdf_text,
+    fetch_bse_annual_report,
+    fetch_edgar_latest,
+    fetch_yfinance,
+    ingest_document,
+)
 from agents.sample_data import SAMPLES
 from agents.scoring import compute_scorecard
 from agents.retrieval import retrieval_status
@@ -229,6 +235,52 @@ async def ingest_audio(
     return result
 
 
+@api.post("/ingest/pdf")
+async def ingest_pdf(
+    file: UploadFile = File(...),
+    ticker: str = Form(...),
+    source: str = Form("Annual Report"),
+    company_name: Optional[str] = Form(None),
+):
+    """Extract text from an uploaded PDF (e.g. an Indian annual report) and ingest it.
+
+    Gives non-US stocks a rich narrative source, since yfinance only returns a
+    2-line summary. Scanned/image PDFs extract nothing — we detect that and tell
+    the user to paste the text instead.
+    """
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower()
+    if ext != "pdf":
+        raise HTTPException(status_code=400, detail=f"Not a PDF: .{ext}")
+
+    raw = await file.read()
+    if len(raw) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="PDF exceeds 50MB")
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    try:
+        text = await asyncio.to_thread(extract_pdf_text, raw)
+    except Exception as e:
+        logger.exception("pdf extraction failed")
+        raise HTTPException(status_code=422, detail=f"Couldn't read PDF: {e}")
+
+    if not text or not text.strip():
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "No text found — this looks like a scanned/image PDF. "
+                "Copy the text and use 'Paste text' instead."
+            ),
+        )
+
+    result = await ingest_document(
+        db, ticker=ticker, source=source, text=text, company_name=company_name,
+    )
+    result["extracted_chars"] = len(text)
+    result["text_preview"] = text[:400]
+    return result
+
+
 @api.get("/companies")
 async def list_companies():
     """Ticker -> company name mapping derived from ingested filings."""
@@ -328,6 +380,25 @@ async def ensure_company(req: EnsureRequest):
                 result["form_type"] = form
                 result["exchange"] = "US"
                 return result
+
+    # Indian companies: try BSE's latest annual-report PDF first — it's the rich
+    # narrative source (MD&A, mgmt commentary) that yfinance can't give. Falls
+    # through to yfinance below on any failure (anti-bot, scanned PDF, no code).
+    if exch == "IN":
+        try:
+            bdoc = await fetch_bse_annual_report(ticker)
+        except Exception as e:
+            logger.warning("BSE annual-report fetch failed for %s: %s", ticker, e)
+            bdoc = None
+        if bdoc and bdoc.get("text"):
+            result = await ingest_document(
+                db, ticker=ticker, source=bdoc["source"], text=bdoc["text"],
+                company_name=bdoc.get("company_name") or name,
+            )
+            result["action"] = "ingested_from_bse"
+            result["url"] = bdoc.get("url")
+            result["exchange"] = "IN"
+            return result
 
     # Fallback (and primary path for non-US): Yahoo Finance profile — works for
     # any listed company worldwide (NSE/BSE tickers via .NS/.BO suffixes).

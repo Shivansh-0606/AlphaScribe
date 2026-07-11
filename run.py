@@ -48,7 +48,7 @@ MONGO_VERSION = os.environ.get("MONGO_VERSION", "7.0.14")
 
 MONGO_PORT = 27017
 BACKEND_PORT = 8001
-FRONTEND_PORT = 3000
+FRONTEND_PORT = 3001  # 3000 is often taken by the Hermes WhatsApp bridge
 
 # ANSI colors (enabled on Windows 10+ via the os.system("") trick below)
 RESET = "\033[0m"
@@ -351,7 +351,7 @@ def main() -> None:
             die("MongoDB did not start in time")
 
     spawn("api", [str(venv_python()), "-m", "uvicorn", "server:app",
-                  "--host", "127.0.0.1", "--port", str(BACKEND_PORT)],
+                  "--host", "127.0.0.1", "--port", str(BACKEND_PORT), "--reload"],
           BACKEND, env={**os.environ})
 
     web_env = {**os.environ, "BROWSER": "none", "PORT": str(FRONTEND_PORT)}

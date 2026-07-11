@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { toast } from "sonner";
 import { listReports, compareReports } from "@/lib/api";
@@ -69,10 +69,21 @@ export default function Compare() {
   const [qualityFilter, setQualityFilter] = usePersistedState("compare:qfilter", false);
   const [search, setSearch] = usePersistedState("compare:search", "");
   const { companies = {} } = useOutletContext() || {};
+  const chartRef = useRef(null);
 
   useEffect(() => {
     listReports().then(setReports).catch(() => {});
   }, []);
+
+  // Smoothly bring the graph into view once it has rendered.
+  const scrollToChart = () => {
+    // Two rAFs so Recharts has committed layout before we measure/scroll.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() =>
+        chartRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      ),
+    );
+  };
 
   const maxReached = selected.length >= 4;
 
@@ -96,6 +107,7 @@ export default function Compare() {
     try {
       const rows = await compareReports(selected);
       setLoaded(rows);
+      if (rows.length >= 2) scrollToChart();
     } catch (e) {
       toast.error(e?.response?.data?.detail || e.message);
     } finally {
@@ -138,7 +150,7 @@ export default function Compare() {
           <span className="mono text-[10px] text-muted-foreground uppercase tracking-widest">
             /compare
           </span>
-          <span className="mono text-xs text-primary/70">
+          <span className="mono text-xs text-brand">
             side-by-side portfolio view
           </span>
           <div className="ml-auto flex items-center gap-2">
@@ -277,7 +289,9 @@ export default function Compare() {
       </div>
 
       {/* Quality comparison chart */}
-      {loaded.length >= 2 && <QualityChart loaded={loaded} companies={companies} />}
+      <div ref={chartRef} className="scroll-mt-16">
+        {loaded.length >= 2 && <QualityChart loaded={loaded} companies={companies} />}
+      </div>
 
       {/* Result columns */}
       {loaded.length >= 2 && (
@@ -401,7 +415,7 @@ export default function Compare() {
                 {/* Brief preview */}
                 <div className="cell p-3">
                   <div className="label-mono mb-2">Brief (excerpt)</div>
-                  <div className="prose dark:prose-invert prose-p:text-xs prose-p:leading-relaxed prose-headings:text-sm max-h-64 overflow-y-auto max-w-none">
+                  <div className="prose dark:prose-invert max-w-none prose-headings:text-primary prose-headings:text-sm prose-p:text-xs prose-p:leading-relaxed prose-p:text-primary/90 prose-strong:text-primary prose-a:text-brand prose-li:text-xs prose-li:text-primary/90 prose-code:text-brand max-h-64 overflow-y-auto">
                     <ReactMarkdown>
                       {(r.draft_report || "").slice(0, 800)}
                     </ReactMarkdown>

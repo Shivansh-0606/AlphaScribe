@@ -14,7 +14,7 @@ import json
 import os
 import re
 from contextvars import ContextVar
-from typing import Type, TypeVar
+from typing import Type, TypeVar, get_origin, get_args
 from pydantic import BaseModel, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
@@ -204,9 +204,39 @@ async def chat_text(system: str, user: str, *, model: str = DEFAULT_HEAVY_MODEL)
     raise last_err  # type: ignore[misc]
 
 
+def _type_name(ann) -> str:
+    s = str(ann).replace("typing.", "")
+    if s.startswith("<class '") and s.endswith("'>"):
+        s = s[len("<class '"):-len("'>")]  # e.g. "str", "float"
+    return s
+
+
+def _schema_hint(model: Type[BaseModel], _indent: int = 0) -> str:
+    """Readable field spec for the prompt, recursing into nested Pydantic models
+    so array-of-object schemas (e.g. FactCheckSchema.claims) show their item fields."""
+    pad = "  " * (_indent + 1)
+    lines: list[str] = []
+    for name, f in model.model_fields.items():
+        ann = f.annotation
+        origin = get_origin(ann)
+        args = get_args(ann)
+        req = "required" if f.is_required() else "optional"
+        desc = f" - {f.description}" if f.description else ""
+        if isinstance(ann, type) and issubclass(ann, BaseModel):
+            lines.append(f'{pad}"{name}": object ({req}){desc}, with fields:')
+            lines.append(_schema_hint(ann, _indent + 1))
+        elif origin in (list, tuple) and args and isinstance(args[0], type) and issubclass(args[0], BaseModel):
+            lines.append(f'{pad}"{name}": array ({req}){desc}, each item an object with fields:')
+            lines.append(_schema_hint(args[0], _indent + 1))
+        else:
+            lines.append(f'{pad}"{name}": {_type_name(ann)} ({req}){desc}')
+    return "\n".join(lines)
+
+
 def _strip_code_fence(text: str) -> str:
+    """Strip a single fence that wraps the whole string, e.g. ```json / ```markdown."""
     text = text.strip()
-    m = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, re.DOTALL)
+    m = re.match(r"^```[a-zA-Z0-9]*\s*\n?(.*?)\n?\s*```$", text, re.DOTALL)
     if m:
         return m.group(1).strip()
     return text
@@ -220,9 +250,15 @@ async def chat_json(
     model: str = DEFAULT_LIGHT_MODEL,
 ) -> T:
     """Ask the LLM for a JSON object and validate it against a Pydantic schema."""
+    # Describe the fields directly instead of dumping the JSON Schema. The raw
+    # schema (with its own "properties"/"type" keys) tempts weaker models to echo
+    # the envelope back, e.g. {"properties": {...}, "type": "object"}.
     guardrail = (
-        "\n\nReturn ONLY a single JSON object. No prose, no markdown fences. "
-        f"The JSON MUST match this schema (Pydantic):\n{json.dumps(schema.model_json_schema(), indent=2)}"
+        "\n\nReturn ONLY a single JSON object with exactly these keys "
+        "(no wrapper, no \"properties\" key, no schema metadata). "
+        "Include every field named below verbatim; do not rename or replace them "
+        "with index/id fields. No prose, no markdown fences.\n"
+        + _schema_hint(schema)
     )
     raw = await chat_text(system + guardrail, user, model=model)
     raw = _strip_code_fence(raw)
@@ -230,9 +266,24 @@ async def chat_json(
         data = json.loads(raw)
     except json.JSONDecodeError:
         m = re.search(r"\{.*\}|\[.*\]", raw, re.DOTALL)
-        if not m:
-            raise ValueError(f"LLM did not return JSON: {raw[:400]}")
-        data = json.loads(m.group(0))
+        if m:
+            data = json.loads(m.group(0))
+        else:
+            # Model sometimes drops the outer braces, returning bare "k": v pairs.
+            try:
+                data = json.loads("{" + raw.strip().rstrip(",") + "}")
+            except json.JSONDecodeError:
+                raise ValueError(f"LLM did not return JSON: {raw[:400]}")
+    # Model sometimes echoes the JSON Schema envelope instead of an instance,
+    # e.g. {"properties": {<real values>}, "type": "object"}. Unwrap it when the
+    # top level has none of the expected fields but does carry "properties".
+    if (
+        isinstance(data, dict)
+        and "properties" in data
+        and isinstance(data["properties"], dict)
+        and not (set(schema.model_fields) & set(data))
+    ):
+        data = data["properties"]
     # Model sometimes returns a bare array when schema wraps one list field.
     if isinstance(data, list):
         list_fields = [

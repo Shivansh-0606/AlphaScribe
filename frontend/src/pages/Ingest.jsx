@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { toast } from "sonner";
-import { ingestAudio, ingestEdgar, ingestSamples, ingestText, listFilings } from "@/lib/api";
+import { ingestAudio, ingestEdgar, ingestPdf, ingestSamples, ingestText, listFilings } from "@/lib/api";
 import { INGEST } from "@/constants/testIds";
 import { usePersistedState } from "@/lib/persist";
-import { Upload, Database, Globe, Microphone, Waveform } from "@phosphor-icons/react";
+import { Upload, Database, Globe, Microphone, Waveform, FilePdf } from "@phosphor-icons/react";
 
 const TABS = [
   { id: "text", label: "Paste Text" },
+  { id: "pdf", label: "Upload PDF" },
   { id: "audio", label: "Upload Audio" },
   { id: "edgar", label: "SEC EDGAR" },
   { id: "samples", label: "Sample Corpus" },
@@ -26,10 +27,16 @@ export default function Ingest() {
   const [audioSource, setAudioSource] = usePersistedState("ingest:audioSource", "Earnings Call");
   const [audioLang, setAudioLang] = usePersistedState("ingest:audioLang", "en");
   const [audioFile, setAudioFile] = useState(null);
+  const [pdfTicker, setPdfTicker] = usePersistedState("ingest:pdfTicker", "");
+  const [pdfCompany, setPdfCompany] = usePersistedState("ingest:pdfCompany", "");
+  const [pdfSource, setPdfSource] = usePersistedState("ingest:pdfSource", "Annual Report");
+  const [pdfFile, setPdfFile] = useState(null);
+  const [pdfPreview, setPdfPreview] = useState("");
   const [filings, setFilings] = useState([]);
   const [loading, setLoading] = useState(null);
   const [audioPreview, setAudioPreview] = useState("");
   const fileRef = useRef(null);
+  const pdfRef = useRef(null);
   const { refresh } = useOutletContext() || {};
 
   const load = async () => {
@@ -93,6 +100,34 @@ export default function Ingest() {
     }
   };
 
+  const doPdf = async (e) => {
+    e.preventDefault();
+    if (!pdfFile || !pdfTicker) {
+      toast.error("Ticker and PDF file are required");
+      return;
+    }
+    setLoading("pdf");
+    setPdfPreview("");
+    try {
+      const r = await ingestPdf({
+        file: pdfFile,
+        ticker: pdfTicker.toUpperCase(),
+        source: pdfSource || "Annual Report",
+        company_name: pdfCompany || undefined,
+      });
+      toast.success(`Extracted ${r.extracted_chars} chars → ${r.num_chunks} chunks`);
+      setPdfPreview(r.text_preview || "");
+      setPdfFile(null);
+      if (pdfRef.current) pdfRef.current.value = "";
+      await load(); refresh?.();
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err.message;
+      toast.error(String(msg).slice(0, 200));
+    } finally {
+      setLoading(null);
+    }
+  };
+
   const doAudio = async (e) => {
     e.preventDefault();
     if (!audioFile || !audioTicker) {
@@ -129,7 +164,7 @@ export default function Ingest() {
           <span className="mono text-[10px] text-muted-foreground uppercase tracking-widest">
             /ingest
           </span>
-          <span className="mono text-xs text-primary/70">upload filings to the corpus</span>
+          <span className="mono text-xs text-brand">upload filings to the corpus</span>
         </div>
         <div className="px-6 flex divider-x border-t border-border">
           {TABS.map((t) => (
@@ -215,6 +250,101 @@ export default function Ingest() {
                 <Upload size={14} />
                 {loading === "text" ? "Ingesting…" : "Ingest text"}
               </button>
+            </form>
+          )}
+
+          {tab === "pdf" && (
+            <form
+              data-testid="ingest-pdf-form"
+              onSubmit={doPdf}
+              className="max-w-3xl"
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <FilePdf size={16} className="text-primary" />
+                <div>
+                  <div className="text-sm text-primary">Upload an annual report PDF</div>
+                  <div className="label-mono mt-0.5">
+                    NSE/BSE annual report · investor presentation · max 50MB
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 mb-3">
+                <div>
+                  <label className="label-mono block mb-1">Ticker</label>
+                  <input
+                    data-testid="ingest-pdf-ticker"
+                    value={pdfTicker}
+                    onChange={(e) => setPdfTicker(e.target.value.toUpperCase())}
+                    placeholder="RELIANCE"
+                    className="w-full input-bg border border-border text-primary mono px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary tabular-nums"
+                  />
+                </div>
+                <div>
+                  <label className="label-mono block mb-1">Company name</label>
+                  <input
+                    value={pdfCompany}
+                    onChange={(e) => setPdfCompany(e.target.value)}
+                    placeholder="Reliance Industries Ltd."
+                    className="w-full input-bg border border-border text-primary text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                <div>
+                  <label className="label-mono block mb-1">Source label</label>
+                  <input
+                    value={pdfSource}
+                    onChange={(e) => setPdfSource(e.target.value)}
+                    placeholder="Annual Report FY24"
+                    className="w-full input-bg border border-border text-primary text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="label-mono block mb-1">PDF file</label>
+                <input
+                  ref={pdfRef}
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  data-testid="ingest-pdf-file"
+                  onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
+                  className="w-full input-bg border border-border text-primary mono text-xs px-3 py-2 file:mr-3 file:mono file:text-[10px] file:uppercase file:tracking-widest file:bg-surface file:text-primary file:border-0 file:px-3 file:py-1"
+                />
+              </div>
+
+              {pdfFile && (
+                <div className="mt-3 mono text-[11px] text-muted-foreground flex items-center gap-2">
+                  <FilePdf size={12} />
+                  <span className="text-primary">{pdfFile.name}</span>
+                  <span>· {(pdfFile.size / 1024 / 1024).toFixed(2)} MB</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                data-testid="ingest-pdf-submit"
+                disabled={loading === "pdf" || !pdfFile || !pdfTicker}
+                className="mt-4 mono text-xs uppercase tracking-widest h-10 px-4 bg-brand text-white hover:opacity-90 disabled:opacity-40 flex items-center gap-2"
+              >
+                <FilePdf size={14} />
+                {loading === "pdf" ? "Extracting…" : "Extract & ingest"}
+              </button>
+
+              <div className="mt-2 mono text-[10px] text-muted-foreground">
+                Scanned/image PDFs have no selectable text — paste the text instead.
+              </div>
+
+              {pdfPreview && (
+                <div className="mt-6">
+                  <div className="label-mono mb-2">Extracted text preview</div>
+                  <div className="cell p-3 mono text-xs text-primary/80 leading-relaxed max-h-64 overflow-y-auto">
+                    {pdfPreview}
+                    {pdfPreview.length >= 400 && (
+                      <span className="text-muted-foreground"> …</span>
+                    )}
+                  </div>
+                </div>
+              )}
             </form>
           )}
 

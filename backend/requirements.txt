@@ -36,6 +36,9 @@ anthropic>=0.34.0
 # --- global company data (non-US fallback when SEC EDGAR has nothing) ---
 yfinance>=0.2.40
 
+# --- PDF ingest (annual reports, esp. Indian NSE/BSE filings) ---
+pypdf>=4.0.0
+
 # --- imported by the app but were missing from the original manifest ---
 httpx>=0.27.0
 langgraph>=0.2.0

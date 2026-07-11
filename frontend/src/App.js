@@ -1,10 +1,11 @@
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
-import { ThemeProvider } from "@/lib/theme";
 import { JobsProvider } from "@/lib/jobs";
 import { LlmProvider } from "@/lib/llmSettings";
 import AppLayout from "@/components/AppLayout";
+import Landing from "@/pages/Landing";
+import Docs from "@/pages/Docs";
 import Dashboard from "@/pages/Dashboard";
 import ReportView from "@/pages/ReportView";
 import Ingest from "@/pages/Ingest";
@@ -12,10 +13,9 @@ import Compare from "@/pages/Compare";
 
 function App() {
   return (
-    <ThemeProvider>
       <div className="App bg-background text-foreground min-h-screen">
         <Toaster
-          theme="system"
+          theme="dark"
           position="top-right"
           toastOptions={{
             style: {
@@ -32,8 +32,10 @@ function App() {
           <LlmProvider>
           <JobsProvider>
             <Routes>
+              <Route path="/" element={<Landing />} />
+              <Route path="/docs" element={<Docs />} />
               <Route element={<AppLayout />}>
-                <Route path="/" element={<Dashboard />} />
+                <Route path="/app" element={<Dashboard />} />
                 <Route path="/ingest" element={<Ingest />} />
                 <Route path="/compare" element={<Compare />} />
                 <Route path="/reports/:id" element={<ReportView />} />
@@ -44,7 +46,6 @@ function App() {
           </LlmProvider>
         </BrowserRouter>
       </div>
-    </ThemeProvider>
   );
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useOutletContext } from "react-router-dom";
+import { useNavigate, useOutletContext, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import {
   ensureCompany,
@@ -7,13 +7,11 @@ import {
   ingestSamples,
   listReports,
   listTickers,
-  trendingCompanies,
 } from "@/lib/api";
 import { DASHBOARD } from "@/constants/testIds";
 import { useJobs } from "@/lib/jobs";
 import { useLlm } from "@/lib/llmSettings";
 import CompanyCombobox from "@/components/CompanyCombobox";
-import { useWatchlist } from "@/lib/watchlist";
 import {
   Play,
   Sparkle,
@@ -22,11 +20,7 @@ import {
   ShieldWarning,
   TrendUp,
   TrendDown,
-  Star,
-  Clock,
-  Buildings,
   DownloadSimple,
-  Fire,
   Command,
 } from "@phosphor-icons/react";
 
@@ -70,23 +64,35 @@ export default function Dashboard() {
   const [seeding, setSeeding] = useState(false);
   const [reportCount, setReportCount] = useState(0);
   const [tickers, setTickers] = useState([]);
-  const [trending, setTrending] = useState([]);
   const searchRef = useRef(null);
   const nav = useNavigate();
+  const location = useLocation();
   const { startJob } = useJobs();
   const { payload: llmPayload } = useLlm();
-  const { refresh, companies = {} } = useOutletContext() || {};
-  const { watchlist } = useWatchlist();
+  const { refresh } = useOutletContext() || {};
 
   useEffect(() => {
-    Promise.all([listReports(), listTickers(), trendingCompanies()])
-      .then(([r, t, tr]) => {
+    Promise.all([listReports(), listTickers()])
+      .then(([r, t]) => {
         setReportCount(r.length);
         setTickers(t);
-        setTrending(tr || []);
       })
       .catch(() => {});
   }, []);
+
+  // Preselect a company when arriving from a Watchlist item (sidebar → New
+  // Report). Re-runs once tickers load so has_filings is accurate.
+  useEffect(() => {
+    const st = location.state;
+    if (st?.pickTicker) {
+      setSelected({
+        ticker: st.pickTicker,
+        name: st.pickName || st.pickTicker,
+        has_filings: tickers.includes(st.pickTicker),
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state, tickers]);
 
   // Cmd/Ctrl+K to focus search from anywhere
   useEffect(() => {
@@ -138,6 +144,8 @@ export default function Dashboard() {
               r.filing_date || "date unknown"
             })`,
           );
+        } else if (r.action === "ingested_from_bse") {
+          toast.success(`Fetched ${r.source} from BSE — ${r.num_chunks} chunks`);
         }
         setSelected({ ...selected, has_filings: true });
       } catch (err) {
@@ -195,16 +203,14 @@ export default function Dashboard() {
   const busy = submitting || ensuring;
 
   return (
-    <div data-testid={DASHBOARD.root} className="min-h-screen">
-      {/* Slim top bar */}
+    <div data-testid={DASHBOARD.root} className="min-h-screen flex flex-col">
+      {/* Slim top bar — centered */}
       <div className="sticky top-0 z-10 bg-background border-b border-border">
-        <div className="h-14 px-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="mono text-[10px] text-muted-foreground uppercase tracking-widest">
-              /home
-            </span>
-            <span className="mono text-xs text-primary/70">generate a research brief</span>
-          </div>
+        <div className="h-14 px-6 flex items-center justify-center gap-6 flex-wrap">
+          <span className="mono text-[10px] text-muted-foreground uppercase tracking-widest">
+            /home
+          </span>
+          <span className="mono text-xs text-primary/70">generate a research brief</span>
           <div className="flex items-center gap-4 mono text-[10px] uppercase tracking-widest text-muted-foreground">
             <span><span className="text-primary tabular-nums">{tickers.length}</span> companies</span>
             <span><span className="text-primary tabular-nums">{reportCount}</span> reports</span>
@@ -213,23 +219,12 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Hero */}
-      <div className="px-6 md:px-12 pt-14 pb-10">
-        <div className="max-w-3xl mx-auto text-center">
-          <div className="label-mono mb-4">Multi-agent equity research</div>
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl tracking-tight font-medium mb-4">
-            Ask a company a question.
-            <br />
-            Get a <span className="text-brand">fact-checked</span> answer.
-          </h1>
-          <p className="text-sm text-muted-foreground max-w-xl mx-auto leading-relaxed mb-8">
-            Search any US-listed company, pick a question, and AlphaScribe pulls
-            the latest SEC filing, extracts financials, gauges management tone,
-            drafts a brief, and verifies every number before you see it.
-          </p>
-
+      {/* Centered composer — the report itself generates on /reports/:id */}
+      <div className="flex-1 flex items-center justify-center px-6 py-12">
+        <div className="w-full max-w-[720px] text-center">
           {/* Search */}
-          <div className="max-w-2xl mx-auto text-left mb-3">
+          <div className="text-left mb-6">
+            <div className="label-mono mb-2">Search reports</div>
             <CompanyCombobox
               value={selected}
               onSelect={setSelected}
@@ -243,43 +238,8 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Trending chips */}
-          {trending.length > 0 && (
-            <div className="max-w-2xl mx-auto text-left mb-6">
-              <div className="flex items-center gap-2 mb-2">
-                <Fire size={12} className="text-warning" />
-                <span className="label-mono">Trending now</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {trending.map((t) => (
-                  <button
-                    key={t.ticker}
-                    onClick={() =>
-                      setSelected({
-                        ticker: t.ticker,
-                        name: t.name,
-                        has_filings: tickers.includes(t.ticker),
-                      })
-                    }
-                    data-testid={`trending-${t.ticker}`}
-                    className="px-3 py-1.5 border border-border hover:border-primary text-left"
-                    title={t.count ? `${t.count} reports` : "Popular pick"}
-                  >
-                    <div className="text-xs text-primary">{t.name}</div>
-                    <div className="mono text-[9px] uppercase tracking-widest text-muted-foreground flex items-center gap-1">
-                      {t.ticker}
-                      {t.count > 0 && (
-                        <span className="text-brand">· {t.count}</span>
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Preset tiles */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-border max-w-3xl mx-auto mb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-border mb-6">
             {PRESETS.map((p) => {
               const Icon = p.icon;
               const active = activePreset === p.id;
@@ -304,7 +264,7 @@ export default function Dashboard() {
           </div>
 
           {/* Question box */}
-          <div className="max-w-2xl mx-auto text-left">
+          <div className="text-left">
             <label className="label-mono block mb-2">Your question</label>
             <textarea
               data-testid={DASHBOARD.queryInput}
@@ -320,7 +280,7 @@ export default function Dashboard() {
           </div>
 
           {/* CTA */}
-          <div className="max-w-2xl mx-auto mt-4 flex items-center justify-between gap-3">
+          <div className="mt-4 flex items-center justify-between gap-3">
             <div className="mono text-[10px] text-muted-foreground text-left">
               {selected ? (
                 selected.exchange === "IN" && selected.has_filings === false ? (
@@ -391,113 +351,13 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Watchlist + Coverage strip */}
-      {(watchlist.length > 0 || tickers.length > 0) && (
-        <div className="border-t border-border px-6 md:px-12 py-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl mx-auto">
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <Star size={14} weight="fill" className="text-warning" />
-                <span className="label-mono">Watchlist</span>
-              </div>
-              {watchlist.length === 0 ? (
-                <p className="mono text-[11px] text-muted-foreground">
-                  Star companies in search or on the report page to pin them here.
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {watchlist.map((w) => (
-                    <button
-                      key={w.ticker}
-                      onClick={() => setSelected({ ...w, has_filings: tickers.includes(w.ticker) })}
-                      data-testid={`watchlist-item-${w.ticker}`}
-                      className="px-3 py-1.5 border border-border hover:border-primary text-left"
-                    >
-                      <div className="text-xs text-primary">{w.name}</div>
-                      <div className="mono text-[9px] uppercase text-muted-foreground">
-                        {w.ticker}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <Buildings size={14} className="text-brand" />
-                <span className="label-mono">Coverage</span>
-                <span className="mono text-[10px] text-muted-foreground">
-                  {tickers.length} ingested
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {tickers.length === 0 && (
-                  <span className="mono text-[11px] text-muted-foreground">— empty —</span>
-                )}
-                {tickers.map((t) => (
-                  <button
-                    key={t}
-                    onClick={() =>
-                      setSelected({
-                        ticker: t,
-                        name: companies[t] || t,
-                        has_filings: true,
-                      })
-                    }
-                    data-testid={DASHBOARD.tickerChip(t)}
-                    className={`px-3 py-1.5 border text-left leading-tight ${
-                      selected?.ticker === t
-                        ? "border-primary bg-surface"
-                        : "border-border hover:border-primary"
-                    }`}
-                  >
-                    <div className="text-xs text-primary">{companies[t] || t}</div>
-                    <div className="mono text-[9px] uppercase tracking-widest text-muted-foreground">
-                      {t}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Pipeline overview */}
-      <div className="border-t border-border px-6 md:px-12 py-10">
-        <div className="max-w-5xl mx-auto">
-          <div className="label-mono mb-4">How it works</div>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-px bg-border">
-            {[
-              ["1", "Retriever", "Hybrid BM25 + dense + rerank"],
-              ["2", "Extractor", "Structured financials (Pydantic)"],
-              ["3", "Tone & Risk", "Bullish / Bearish + risk factors"],
-              ["4", "Synthesizer", "Cited Markdown brief (gpt-4o)"],
-              ["5", "Fact-Checker", "Verify every claim · retry loop"],
-            ].map(([n, title, desc]) => (
-              <div key={n} className="bg-surface p-4">
-                <div className="mono text-[10px] text-brand mb-1">NODE {n}</div>
-                <div className="text-sm text-primary mb-1">{title}</div>
-                <div className="text-[11px] text-muted-foreground leading-relaxed">
-                  {desc}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="border-t border-border px-6 md:px-12 py-6">
-        <div className="max-w-5xl mx-auto flex items-center justify-between mono text-[10px] text-muted-foreground">
-          <div className="flex items-center gap-4">
-            <Clock size={12} />
-            <span>Reports typically finish in 30–50s</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <DownloadSimple size={12} />
-            <span>Every brief is downloadable as Markdown &amp; PDF</span>
-          </div>
+      {/* Footer — centered */}
+      <div className="border-t border-border px-6 md:px-12 py-5">
+        <div className="mono text-[10px] text-muted-foreground flex flex-wrap items-center justify-center gap-6">
+          <span>Showing {reportCount} reports</span>
+          <span className="flex items-center gap-1">
+            <DownloadSimple size={12} /> Every brief is downloadable as Markdown &amp; PDF
+          </span>
         </div>
       </div>
     </div>

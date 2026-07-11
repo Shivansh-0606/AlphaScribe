@@ -1,11 +1,11 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { deleteReport, listReports, listTickers, listCompanies, health } from "@/lib/api";
+import { deleteReport, listReports, listCompanies, health } from "@/lib/api";
 import { useJobs } from "@/lib/jobs";
+import { useWatchlist } from "@/lib/watchlist";
 import { APP } from "@/constants/testIds";
-import { Terminal, FileText, Upload, ChartLine, Scales, Trash, CircleNotch, XCircle } from "@phosphor-icons/react";
-import ThemeToggle from "@/components/ThemeToggle";
+import { Terminal, FileText, Upload, ChartLine, Scales, Trash, CircleNotch, XCircle, Star, X } from "@phosphor-icons/react";
 import LlmSettings from "@/components/LlmSettings";
 
 const NAV_CLS = ({ isActive }) =>
@@ -17,18 +17,17 @@ const NAV_CLS = ({ isActive }) =>
 
 export default function AppLayout() {
   const [reports, setReports] = useState([]);
-  const [tickers, setTickers] = useState([]);
   const [companies, setCompanies] = useState({});
   const [retr, setRetr] = useState({ embedder: "not_loaded", reranker: "not_loaded" });
+  const { watchlist, remove } = useWatchlist();
   const nav = useNavigate();
 
   const refresh = async () => {
     try {
-      const [r, t, c, h] = await Promise.all([
-        listReports(), listTickers(), listCompanies(), health()
+      const [r, c, h] = await Promise.all([
+        listReports(), listCompanies(), health()
       ]);
       setReports(r);
-      setTickers(t);
       setCompanies(c || {});
       setRetr(h.retrieval || {});
     } catch {
@@ -47,9 +46,13 @@ export default function AppLayout() {
       {/* Sidebar */}
       <aside
         data-testid={APP.sidebar}
-        className="w-64 shrink-0 border-r border-border flex flex-col sticky top-0 h-screen"
+        className="w-64 shrink-0 border-r border-border flex flex-col fixed top-0 left-0 h-screen z-30"
       >
-        <div className="h-14 flex items-center px-4 border-b border-border">
+        <NavLink
+          to="/"
+          title="Go to landing page"
+          className="h-14 flex items-center px-4 border-b border-border hover:bg-surface transition-none"
+        >
           <Terminal size={18} weight="bold" className="text-primary mr-2" />
           <div className="flex-1">
             <div className="mono text-sm font-semibold tracking-tight">
@@ -59,10 +62,10 @@ export default function AppLayout() {
               equity intel · v0.1
             </div>
           </div>
-        </div>
+        </NavLink>
 
         <nav className="py-3 divider-y flex flex-col">
-          <NavLink to="/" end className={NAV_CLS} data-testid={APP.sidebarNewReport}>
+          <NavLink to="/app" end className={NAV_CLS} data-testid={APP.sidebarNewReport}>
             <ChartLine size={14} /> New Report
           </NavLink>
           <NavLink to="/compare" className={NAV_CLS} data-testid={APP.sidebarCompare}>
@@ -74,22 +77,49 @@ export default function AppLayout() {
         </nav>
 
         <div className="px-4 py-3 border-t border-border">
-          <div className="label-mono mb-2">Coverage</div>
-          <div className="flex flex-wrap gap-1">
-            {tickers.length === 0 ? (
-              <span className="mono text-xs text-muted-foreground">— empty —</span>
-            ) : (
-              tickers.map((t) => (
-                <span
-                  key={t}
-                  title={companies[t] || t}
-                  className="mono text-[10px] px-1.5 py-0.5 border border-border text-primary"
-                >
-                  {t}
-                </span>
-              ))
-            )}
+          <div className="flex items-center gap-1.5 mb-2.5">
+            <Star size={14} weight="fill" className="text-warning" />
+            <span className="label-mono !text-[11px]">Watchlist</span>
+            <span className="mono text-[10px] text-muted-foreground ml-auto">
+              {watchlist.length}
+            </span>
           </div>
+          {watchlist.length === 0 ? (
+            <p className="mono text-[10px] text-muted-foreground leading-relaxed">
+              Star a company on any report to pin it here.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-1 max-h-52 overflow-y-auto">
+              {watchlist.map((w) => (
+                <li
+                  key={w.ticker}
+                  className="group flex items-center gap-1 border border-border hover:border-primary transition-none"
+                >
+                  <button
+                    onClick={() =>
+                      nav("/app", { state: { pickTicker: w.ticker, pickName: w.name } })
+                    }
+                    data-testid={`watchlist-item-${w.ticker}`}
+                    title={`New report on ${w.name || w.ticker}`}
+                    className="flex-1 min-w-0 text-left px-2.5 py-2 hover:bg-surface transition-none"
+                  >
+                    <div className="text-xs text-primary truncate">{w.name || w.ticker}</div>
+                    <div className="mono text-[9px] uppercase tracking-widest text-muted-foreground">
+                      {w.ticker}
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => remove(w.ticker)}
+                    data-testid={`watchlist-remove-${w.ticker}`}
+                    title="Remove from watchlist"
+                    className="p-1.5 mr-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-bearish transition-none"
+                  >
+                    <X size={12} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto border-t border-border">
@@ -181,14 +211,10 @@ export default function AppLayout() {
         <div className="border-t border-border">
           <LlmSettings />
         </div>
-        <div className="px-4 py-2 border-t border-border flex items-center justify-between">
-          <span className="label-mono !text-[9px]">Theme</span>
-          <ThemeToggle />
-        </div>
       </aside>
 
       {/* Main */}
-      <main className="flex-1 min-w-0">
+      <main className="flex-1 min-w-0 ml-64">
         <ActivityBar />
         <Outlet context={{ refresh, companies }} />
       </main>
