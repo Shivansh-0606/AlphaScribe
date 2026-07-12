@@ -174,10 +174,16 @@ export default function CompanyCombobox({
                       className={`px-1 py-0.5 border text-[9px] ${
                         r.exchange === "IN"
                           ? "border-warning text-warning"
+                          : r.exchange === "IN-ADR"
+                          ? "border-brand text-brand"
                           : "border-border text-muted-foreground"
                       }`}
                     >
-                      {r.exchange === "IN" ? "NSE/BSE" : "NYSE/NASDAQ"}
+                      {r.exchange === "IN"
+                        ? "NSE/BSE"
+                        : r.exchange === "IN-ADR"
+                        ? "India ADR"
+                        : "NYSE/NASDAQ"}
                     </span>
                   )}
                 </div>
