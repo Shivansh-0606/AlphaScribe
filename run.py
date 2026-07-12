@@ -39,7 +39,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
-VENV = ROOT / ".venv"
+VENV = ROOT / ".venv2"  # .venv abandoned: locked zstandard.pyd from a wedged process (clears on reboot)
 MONGO_DIR = ROOT / ".mongo"
 MONGO_DATA = MONGO_DIR / "data"
 
@@ -47,7 +47,7 @@ IS_WIN = os.name == "nt"
 MONGO_VERSION = os.environ.get("MONGO_VERSION", "7.0.14")
 
 MONGO_PORT = 27017
-BACKEND_PORT = 8001
+BACKEND_PORT = 8002  # 8001 held by an orphaned socket; revert to 8001 after a reboot
 FRONTEND_PORT = 3001  # 3000 is often taken by the Hermes WhatsApp bridge
 
 # ANSI colors (enabled on Windows 10+ via the os.system("") trick below)

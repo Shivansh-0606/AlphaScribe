@@ -15,6 +15,11 @@ from .indian_companies import INDIAN_TICKERS
 
 SEC_UA = "AlphaScribe Research research@alphascribe.ai"
 
+# US-listed ADRs of Indian companies. They're in SEC's list (so auto-fetchable
+# via the plain ADR ticker), but they're Indian companies — label them distinctly
+# instead of a plain "US" so the UI can show it while keeping US-style auto-fetch.
+INDIAN_ADRS = {"HDB", "IBN", "INFY", "WIT", "RDY", "SIFY"}
+
 _INDEX: list[dict] = []
 _TICKER_TO_NAME: dict[str, str] = {}
 _LOADED_AT: float = 0.0
@@ -53,7 +58,7 @@ async def load_index(force: bool = False) -> int:
             rows.append({
                 "ticker": ticker,
                 "name": name,
-                "exchange": "US",
+                "exchange": "IN-ADR" if ticker in INDIAN_ADRS else "US",
                 "_nt": _norm(ticker),
                 "_nn": _norm(name),
             })
