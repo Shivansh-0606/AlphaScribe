@@ -106,3 +106,6 @@ test_result.md
 
 # Plan/scratch
 *.orig
+
+# Local product/planning docs — keep private
+docs/planning/
