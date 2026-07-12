@@ -10,7 +10,8 @@ const listeners = new Set();
 
 function read() {
   try {
-    return JSON.parse(localStorage.getItem(KEY) || "[]");
+    const v = JSON.parse(localStorage.getItem(KEY) || "[]");
+    return Array.isArray(v) ? v : [];   // tolerate corrupt/tampered storage
   } catch {
     return [];
   }
@@ -20,7 +21,13 @@ let current = read();
 
 function write(next) {
   current = next;
-  localStorage.setItem(KEY, JSON.stringify(next));
+  try {
+    localStorage.setItem(KEY, JSON.stringify(next));
+  } catch {
+    // Storage disabled or full (e.g. Safari Private Mode). Keep the in-memory
+    // update so the UI still reflects the toggle — it just won't persist —
+    // rather than throwing out of the star's onClick handler.
+  }
   listeners.forEach((l) => l());
 }
 

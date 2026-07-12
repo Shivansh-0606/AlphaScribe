@@ -1,6 +1,13 @@
 import axios from "axios";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
+if (!BACKEND_URL) {
+  // Fall back to same-origin "/api" (valid when served behind one proxy).
+  // In this repo's split dev setup (frontend :3001, backend :8001) the var is
+  // required — warn so a missing .env doesn't silently 404 every call as the
+  // old `undefined/api` did.
+  console.warn("REACT_APP_BACKEND_URL is not set; using same-origin /api");
+}
 export const API = `${BACKEND_URL}/api`;
 
 export const http = axios.create({ baseURL: API, timeout: 60000 });
@@ -70,8 +77,13 @@ export const streamJob = (jobId, onEvent, onEnd) => {
     onEnd?.();
   });
   es.onerror = () => {
-    es.close();
-    onEnd?.();
+    // EventSource auto-reconnects on transient blips (readyState CONNECTING).
+    // Only give up when the browser has permanently closed the stream, so a
+    // brief network hiccup mid-report isn't reported as a failed job.
+    if (es.readyState === EventSource.CLOSED) {
+      es.close();
+      onEnd?.();
+    }
   };
   return () => es.close();
 };

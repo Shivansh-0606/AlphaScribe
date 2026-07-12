@@ -141,7 +141,7 @@ export default function Docs() {
   ];
 
   const stack = [
-    { layer: "Frontend", tech: "React 19, React Router, shadcn/ui, Tailwind, Recharts, Framer Motion" },
+    { layer: "Frontend", tech: "React 19, React Router, Tailwind, Recharts, Phosphor Icons, react-markdown" },
     { layer: "Backend", tech: "FastAPI, LangGraph, Pydantic, Motor (async MongoDB)" },
     { layer: "AI / ML", tech: "Pluggable LLM (Gemini, OpenAI, Anthropic, Groq, more); rank-bm25 + fastembed + cross-encoder rerank" },
     { layer: "Data", tech: "MongoDB, SEC EDGAR, Yahoo Finance, BSE annual reports" },
@@ -163,7 +163,7 @@ export default function Docs() {
       path: "/api/health",
       desc: "Health check. Reports whether an LLM key is configured and current filing/chunk counts.",
       params: [],
-      example: 'curl http://localhost:8001/api/health\n\n{\n  "ok": true,\n  "gemini_key_configured": true,\n  "filings": 6,\n  "chunks": 214\n}',
+      example: 'curl http://localhost:8001/api/health\n\n{\n  "ok": true,\n  "llm_key_configured": true,\n  "filings": 6,\n  "chunks": 214\n}',
     },
     {
       method: "POST",

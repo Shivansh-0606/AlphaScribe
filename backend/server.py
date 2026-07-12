@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
@@ -49,6 +49,27 @@ api = APIRouter(prefix="/api")
 JOBS: dict[str, dict[str, Any]] = {}
 JOB_QUEUES: dict[str, asyncio.Queue] = {}
 
+# Bound the registry: cap concurrent pipelines (each burns LLM quota + CPU) and
+# evict finished entries so JOBS/JOB_QUEUES don't grow forever (delete_report
+# only removes the Mongo docs).
+MAX_ACTIVE_JOBS = int(os.environ.get("MAX_ACTIVE_JOBS", "8"))
+MAX_JOB_HISTORY = int(os.environ.get("MAX_JOB_HISTORY", "200"))
+_DONE_STATES = ("completed", "failed", "cancelled")
+
+
+def _reap_jobs() -> None:
+    """Drop the oldest finished jobs once the registry exceeds MAX_JOB_HISTORY.
+    Only finished jobs are evicted, so active ones are never dropped."""
+    if len(JOBS) <= MAX_JOB_HISTORY:
+        return
+    finished = sorted(
+        (j for j in JOBS.values() if j.get("status") in _DONE_STATES),
+        key=lambda j: j.get("created_at", ""),
+    )
+    for j in finished[: len(JOBS) - MAX_JOB_HISTORY]:
+        JOBS.pop(j["id"], None)
+        JOB_QUEUES.pop(j["id"], None)
+
 # Compile graph once at startup.
 graph = build_graph(db)
 
@@ -68,20 +89,20 @@ logger.info("LLM provider=%s  light=%s  heavy=%s  key=%s",
 # ---------------------------------------------------------------------------
 
 class IngestTextRequest(BaseModel):
-    ticker: str
-    source: str = Field(description="Human label, e.g. '10-Q FY24 Q3'")
-    text: str
-    company_name: Optional[str] = None
+    ticker: str = Field(max_length=20)
+    source: str = Field(max_length=200, description="Human label, e.g. '10-Q FY24 Q3'")
+    text: str = Field(max_length=1_000_000)   # ~1MB; chunker handles the rest
+    company_name: Optional[str] = Field(default=None, max_length=200)
 
 
 class IngestEdgarRequest(BaseModel):
-    ticker: str
-    form_type: str = "10-Q"
+    ticker: str = Field(max_length=20)
+    form_type: str = Field(default="10-Q", max_length=20)
 
 
 class GenerateRequest(BaseModel):
-    ticker: str
-    query: str
+    ticker: str = Field(max_length=20)
+    query: str = Field(max_length=2000)
     context_report_id: Optional[str] = None   # if set, treat as a follow-up
                                               # and inject prior brief into synth
     llm_provider: Optional[str] = None        # gemini|openai|groq|custom
@@ -117,7 +138,7 @@ async def health():
     chunks = await db.filing_chunks.count_documents({})
     return {
         "ok": True,
-        "gemini_key_configured": llm_key,
+        "llm_key_configured": llm_key,
         "filings": docs,
         "chunks": chunks,
         "retrieval": retrieval_status(),
@@ -164,8 +185,17 @@ async def ingest_samples():
     return {"ingested": ingested, "total_samples": len(SAMPLES)}
 
 
+def _reject_oversize(request: Request, limit: int) -> None:
+    """Reject an upload by Content-Length before buffering the whole body into
+    memory. The post-read len() check still backstops a missing/lying header."""
+    cl = request.headers.get("content-length")
+    if cl and cl.isdigit() and int(cl) > limit:
+        raise HTTPException(status_code=413, detail=f"File exceeds {limit // (1024 * 1024)}MB")
+
+
 @api.post("/ingest/audio")
 async def ingest_audio(
+    request: Request,
     file: UploadFile = File(...),
     ticker: str = Form(...),
     source: str = Form("Audio Transcript"),
@@ -181,6 +211,7 @@ async def ingest_audio(
     if ext not in ALLOWED:
         raise HTTPException(status_code=400, detail=f"Unsupported audio type: .{ext}")
 
+    _reject_oversize(request, 25 * 1024 * 1024)
     raw = await file.read()
     if len(raw) > 25 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Audio file exceeds 25MB")
@@ -202,26 +233,32 @@ async def ingest_audio(
     }
     try:
         import google.generativeai as genai
+        from agents.llm import GEMINI_LOCK
 
         def _transcribe() -> str:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel(
-                os.environ.get("GEMINI_LIGHT_MODEL", "gemini-2.5-flash")
-            )
-            prompt = (
-                "Transcribe this audio verbatim to plain text. "
-                "Return only the transcript, no commentary."
-            )
-            resp = model.generate_content([
-                prompt,
-                {"mime_type": MIME.get(ext, "audio/mpeg"), "data": raw},
-            ])
+            # configure() is process-global; share llm.py's lock so a concurrent
+            # pipeline Gemini call can't swap the key out from under us.
+            with GEMINI_LOCK:
+                genai.configure(api_key=api_key)
+                model = genai.GenerativeModel(
+                    os.environ.get("GEMINI_LIGHT_MODEL", "gemini-2.5-flash")
+                )
+                prompt = (
+                    "Transcribe this audio verbatim to plain text. "
+                    "Return only the transcript, no commentary."
+                )
+                resp = model.generate_content([
+                    prompt,
+                    {"mime_type": MIME.get(ext, "audio/mpeg"), "data": raw},
+                ])
             return resp.text or ""
 
         transcript = await asyncio.to_thread(_transcribe)
-    except Exception as e:
+    except Exception:
+        # Don't echo the raw provider error: SDK exceptions can embed the API
+        # key (Gemini passes it as a ?key=... URL param). Full detail is logged.
         logger.exception("gemini transcription failed")
-        raise HTTPException(status_code=502, detail=f"Transcription failed: {e}")
+        raise HTTPException(status_code=502, detail="Transcription failed. See server logs.")
 
     if not transcript or not transcript.strip():
         raise HTTPException(status_code=422, detail="Transcript was empty")
@@ -237,6 +274,7 @@ async def ingest_audio(
 
 @api.post("/ingest/pdf")
 async def ingest_pdf(
+    request: Request,
     file: UploadFile = File(...),
     ticker: str = Form(...),
     source: str = Form("Annual Report"),
@@ -252,6 +290,7 @@ async def ingest_pdf(
     if ext != "pdf":
         raise HTTPException(status_code=400, detail=f"Not a PDF: .{ext}")
 
+    _reject_oversize(request, 50 * 1024 * 1024)
     raw = await file.read()
     if len(raw) > 50 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="PDF exceeds 50MB")
@@ -544,17 +583,21 @@ async def _run_pipeline(job_id: str, ticker: str, query: str,
             "message": "Analysis cancelled by user",
             "ts": datetime.now(timezone.utc).isoformat(),
         })
-    except Exception as e:
+    except Exception:
+        # Don't persist/stream the raw error: provider SDK exceptions can embed
+        # the API key (Gemini passes it as a ?key=... URL param), and this text
+        # is written to Mongo and pushed to the client. Full detail is logged.
         logger.exception("pipeline failed")
+        err = "Analysis failed. See server logs for details."
         job["status"] = "failed"
-        job["error"] = str(e)
+        job["error"] = err
         await db.jobs.update_one(
-            {"id": job_id}, {"$set": {"status": "failed", "error": str(e)}}
+            {"id": job_id}, {"$set": {"status": "failed", "error": err}}
         )
         await push({
             "node": "pipeline",
             "status": "error",
-            "message": f"Pipeline failed: {e}",
+            "message": f"Pipeline failed: {err}",
             "ts": datetime.now(timezone.utc).isoformat(),
         })
     finally:
@@ -568,6 +611,15 @@ async def generate_report(req: GenerateRequest):
     ticker = req.ticker.strip().upper()
     if not ticker or not req.query.strip():
         raise HTTPException(status_code=400, detail="ticker and query are required")
+
+    # SSRF guard: the custom LLM endpoint is client-supplied and fetched by the
+    # server, so it must not point at internal/loopback addresses.
+    if req.llm_base_url:
+        from agents.llm import assert_public_url
+        try:
+            assert_public_url(req.llm_base_url)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"llm_base_url {e}")
 
     # Require at least one ingested chunk for the ticker
     has_data = await db.filing_chunks.count_documents({"ticker": ticker}) > 0
@@ -596,6 +648,16 @@ async def generate_report(req: GenerateRequest):
             or cached.get("created_at", "") >= latest_filing.get("created_at", "")
         ):
             return {"job_id": cached["id"], "cached": True}
+
+    # Cap concurrency (unauthenticated endpoint — don't let a caller spin up
+    # unbounded pipelines) and prune finished jobs from memory.
+    active = sum(1 for j in JOBS.values() if j.get("status") in ("queued", "running"))
+    if active >= MAX_ACTIVE_JOBS:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many analyses in progress. Retry in a moment.",
+        )
+    _reap_jobs()
 
     job_id = str(uuid.uuid4())
     prior_brief = ""
@@ -810,7 +872,10 @@ app.include_router(api)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
+    # No cookie/session auth (the BYO key rides in the request body), so
+    # credentials are off. With credentials off, "*" is a true wildcard rather
+    # than per-origin reflection — the honest setting for a public, authless API.
+    allow_credentials=False,
     allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],

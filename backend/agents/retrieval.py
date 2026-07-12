@@ -153,7 +153,11 @@ async def retrieve(
     3) Cross-encoder rerank (if reranker available) -> final ordering.
     Returns (docs, meta) where meta describes which stages were used.
     """
-    cursor = db.filing_chunks.find({"ticker": ticker.upper()}, {"_id": 0})
+    # Newest-first so that when a ticker has >2000 chunks (repeated re-ingests),
+    # the cap drops the oldest rather than silently dropping the latest filing.
+    # ponytail: no dedup/replace on re-ingest, so stale chunks still coexist with
+    # fresh ones; add a doc_id/version filter if that ever causes bad retrievals.
+    cursor = db.filing_chunks.find({"ticker": ticker.upper()}, {"_id": 0}).sort("created_at", -1)
     chunks: list[dict] = await cursor.to_list(2000)
     meta = {"total_chunks": len(chunks), "bm25": True, "dense": False, "reranker": False}
     if not chunks:

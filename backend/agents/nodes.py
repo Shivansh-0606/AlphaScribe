@@ -23,7 +23,7 @@ def _format_docs(docs: list[dict], *, max_chars: int = 8000) -> str:
     total = 0
     for i, d in enumerate(docs, start=1):
         header = f"[{i}] {d.get('source','?')} (chunk {d.get('chunk_idx','?')})"
-        body = d["text"].strip()
+        body = d.get("text", "").strip()
         block = f"{header}\n{body}"
         if total + len(block) > max_chars:
             break
@@ -38,7 +38,16 @@ def _format_docs(docs: list[dict], *, max_chars: int = 8000) -> str:
 
 async def retriever_node(state: AgentState, *, db) -> dict:
     from .retrieval import retrieve
-    docs, meta = await retrieve(db, state["ticker"], state["query"], top_k=8)
+    try:
+        docs, meta = await retrieve(db, state["ticker"], state["query"], top_k=8)
+    except Exception as e:  # noqa: BLE001
+        # Retrieval is best-effort like the external sources: a Mongo/embedding/
+        # reranker failure must degrade to an empty context, not 500 the request.
+        # Downstream nodes already handle no source_documents gracefully.
+        return {
+            "source_documents": [],
+            "trace": [_event("retriever", "error", f"Retrieval failed: {e}")],
+        }
     stages = []
     if meta.get("bm25"):
         stages.append("bm25")
@@ -187,7 +196,13 @@ async def synthesizer_node(state: AgentState) -> dict:
 
 
 def _extract_candidate_claims(draft: str) -> list[str]:
-    """Pull sentences that contain numeric evidence, which are the highest-risk claims."""
+    """Pull sentences that contain numeric evidence, which are the highest-risk claims.
+
+    ponytail: numeric-only grounding. A purely qualitative fabrication (no
+    numbers) extracts zero claims and is trivially accepted (faithfulness 1.0).
+    Upgrade path: also extract declarative assertions and have the fact-checker
+    verify them, accepting the extra LLM cost + retry churn that adds.
+    """
     sentences = re.split(r"(?<=[\.\?\!])\s+", draft)
     number_re = re.compile(r"\$[\d,\.]+[MBK]?|\d+(?:\.\d+)?\s?%|[+-]?\d+(?:\.\d+)?\s?(?:bps|pp)")
     claims = [s.strip() for s in sentences if number_re.search(s)]
@@ -259,7 +274,7 @@ async def fact_checker_node(state: AgentState) -> dict:
     # its text; backfill from the original list so display + errors are meaningful.
     for idx, c in enumerate(result.claims):
         if not c.claim:
-            i = (c.claim_id - 1) if c.claim_id else idx
+            i = (c.claim_id - 1) if c.claim_id is not None else idx
             if 0 <= i < len(claims):
                 c.claim = claims[i]
 

@@ -4,6 +4,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlparse
 import httpx
 from .retrieval import chunk_text
 
@@ -32,44 +33,52 @@ async def fetch_edgar_latest(ticker: str, form_type: str = "10-Q") -> dict | Non
     """
     ticker = ticker.upper()
     headers = {"User-Agent": SEC_UA, "Accept": "application/json"}
-    async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
-        # 1. resolve CIK
-        r = await client.get("https://www.sec.gov/files/company_tickers.json")
-        r.raise_for_status()
-        mapping = r.json()
-        cik = None
-        company_name = None
-        for _, row in mapping.items():
-            if row.get("ticker", "").upper() == ticker:
-                cik = str(row["cik_str"]).zfill(10)
-                company_name = row.get("title")
-                break
-        if not cik:
-            return None
+    try:
+        async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
+            # 1. resolve CIK
+            r = await client.get("https://www.sec.gov/files/company_tickers.json")
+            r.raise_for_status()
+            mapping = r.json()
+            cik = None
+            company_name = None
+            for _, row in mapping.items():
+                if row.get("ticker", "").upper() == ticker:
+                    cik_raw = row.get("cik_str")
+                    if cik_raw is None:
+                        continue
+                    cik = str(cik_raw).zfill(10)
+                    company_name = row.get("title")
+                    break
+            if not cik:
+                return None
 
-        # 2. get submissions
-        r = await client.get(f"https://data.sec.gov/submissions/CIK{cik}.json")
-        r.raise_for_status()
-        subs = r.json().get("filings", {}).get("recent", {})
-        forms = subs.get("form", [])
-        accs = subs.get("accessionNumber", [])
-        docs = subs.get("primaryDocument", [])
-        dates = subs.get("filingDate", [])
-        for i, (form, acc, doc) in enumerate(zip(forms, accs, docs)):
-            if form == form_type:
-                acc_nodash = acc.replace("-", "")
-                filing_date = dates[i] if i < len(dates) else None
-                url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc_nodash}/{doc}"
-                r2 = await client.get(url)
-                r2.raise_for_status()
-                text = _clean_html(r2.text)
-                return {
-                    "source": f"{form_type} {acc} filed {filing_date}" if filing_date else f"{form_type} {acc}",
-                    "url": url,
-                    "text": text[:200_000],
-                    "company_name": company_name,
-                    "filing_date": filing_date,
-                }
+            # 2. get submissions
+            r = await client.get(f"https://data.sec.gov/submissions/CIK{cik}.json")
+            r.raise_for_status()
+            subs = r.json().get("filings", {}).get("recent", {})
+            forms = subs.get("form", [])
+            accs = subs.get("accessionNumber", [])
+            docs = subs.get("primaryDocument", [])
+            dates = subs.get("filingDate", [])
+            for i, (form, acc, doc) in enumerate(zip(forms, accs, docs)):
+                if form == form_type:
+                    acc_nodash = acc.replace("-", "")
+                    filing_date = dates[i] if i < len(dates) else None
+                    url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc_nodash}/{doc}"
+                    r2 = await client.get(url)
+                    r2.raise_for_status()
+                    text = _clean_html(r2.text)
+                    return {
+                        "source": f"{form_type} {acc} filed {filing_date}" if filing_date else f"{form_type} {acc}",
+                        "url": url,
+                        "text": text[:200_000],
+                        "company_name": company_name,
+                        "filing_date": filing_date,
+                    }
+    except (httpx.HTTPError, ValueError, KeyError):
+        # Best-effort source: SEC 429/403/timeout or an unexpected payload shape
+        # returns None (per the docstring) so the caller falls back cleanly.
+        return None
     return None
 
 
@@ -188,7 +197,8 @@ def _bse_pdf_url(scripcode: str, val: str) -> str | None:
         return None
     v = val.strip()
     if v.lower().startswith("http") and v.lower().endswith(".pdf"):
-        return v
+        # Only trust BSE's own host — don't fetch an arbitrary URL from the feed.
+        return v if urlparse(v).hostname and urlparse(v).hostname.endswith("bseindia.com") else None
     if v.lower().endswith(".pdf"):
         return f"https://www.bseindia.com/bseplus/AnnualReport/{scripcode}/{v}"
     return None
@@ -207,41 +217,46 @@ async def fetch_bse_annual_report(ticker: str) -> dict | None:
     consistently in prod (Tier 3: paid data API).
     """
     ticker = ticker.upper()
-    async with httpx.AsyncClient(timeout=25.0, headers=_BSE_HEADERS) as client:
-        code = await _bse_scrip_code(client, ticker)
-        if not code:
-            return None
+    try:
+        async with httpx.AsyncClient(timeout=25.0, headers=_BSE_HEADERS) as client:
+            code = await _bse_scrip_code(client, ticker)
+            if not code:
+                return None
 
-        r = await client.get(
-            "https://api.bseindia.com/BseIndiaAPI/api/AnnualReport_New/w",
-            params={"scripcode": code},
-        )
-        r.raise_for_status()
-        rows = (r.json() or {}).get("Table") or []
-        if not rows:
-            return None
+            r = await client.get(
+                "https://api.bseindia.com/BseIndiaAPI/api/AnnualReport_New/w",
+                params={"scripcode": code},
+            )
+            r.raise_for_status()
+            rows = (r.json() or {}).get("Table") or []
+            if not rows:
+                return None
 
-        # Rows come newest-first. Find the first row with a resolvable PDF link.
-        pdf_url = None
-        year = None
-        company_name = None
-        for row in rows:
-            company_name = company_name or row.get("scrip_name") or row.get("CompName")
-            year = year or row.get("Year") or row.get("FY")
-            for v in row.values():
-                url = _bse_pdf_url(code, v if isinstance(v, str) else "")
-                if url:
-                    pdf_url = url
+            # Rows come newest-first. Find the first row with a resolvable PDF link.
+            pdf_url = None
+            year = None
+            company_name = None
+            for row in rows:
+                company_name = company_name or row.get("scrip_name") or row.get("CompName")
+                year = year or row.get("Year") or row.get("FY")
+                for v in row.values():
+                    url = _bse_pdf_url(code, v if isinstance(v, str) else "")
+                    if url:
+                        pdf_url = url
+                        break
+                if pdf_url:
                     break
-            if pdf_url:
-                break
-        if not pdf_url:
-            return None
+            if not pdf_url:
+                return None
 
-        pr = await client.get(pdf_url)
-        pr.raise_for_status()
-        import asyncio
-        text = await asyncio.to_thread(extract_pdf_text, pr.content)
+            pr = await client.get(pdf_url)
+            pr.raise_for_status()
+            import asyncio
+            text = await asyncio.to_thread(extract_pdf_text, pr.content)
+    except (httpx.HTTPError, ValueError, KeyError):
+        # Anti-bot 403, timeout, or unexpected payload — return None (per the
+        # docstring) so the caller falls back to yfinance. Was raising instead.
+        return None
 
     if not text or not text.strip():
         return None  # scanned/image annual report — nothing to ingest

@@ -23,6 +23,7 @@ export default function CompanyCombobox({
   const inputRef = useRef(null);
   const wrapperRef = useRef(null);
   const debounceRef = useRef(null);
+  const seqRef = useRef(0);
 
   // debounced search
   useEffect(() => {
@@ -32,15 +33,17 @@ export default function CompanyCombobox({
     }
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
+      const seq = ++seqRef.current;   // ignore responses from superseded queries
       setLoading(true);
       try {
         const { results: r } = await searchCompanies(q, 8);
+        if (seq !== seqRef.current) return;
         setResults(r || []);
         setActive(0);
       } catch {
-        setResults([]);
+        if (seq === seqRef.current) setResults([]);
       } finally {
-        setLoading(false);
+        if (seq === seqRef.current) setLoading(false);
       }
     }, 180);
     return () => clearTimeout(debounceRef.current);
@@ -103,6 +106,13 @@ export default function CompanyCombobox({
           ref={inputRef}
           autoFocus={autoFocus}
           data-testid={testId}
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={`${testId}-listbox`}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            open && results[active] ? `${testId}-opt-${active}` : undefined
+          }
           value={value ? display : q}
           onChange={(e) => {
             if (value) onClear?.();
@@ -148,6 +158,8 @@ export default function CompanyCombobox({
       {open && (q.length > 0 || results.length > 0) && (
         <div
           data-testid={`${testId}-listbox`}
+          id={`${testId}-listbox`}
+          role="listbox"
           className="absolute left-0 right-0 top-full mt-1 z-30 bg-surface border border-border max-h-80 overflow-y-auto shadow-lg"
         >
           {results.length === 0 && !loading && (
@@ -158,6 +170,9 @@ export default function CompanyCombobox({
           {results.map((r, i) => (
             <button
               key={r.ticker}
+              id={`${testId}-opt-${i}`}
+              role="option"
+              aria-selected={i === active}
               onClick={() => pick(r)}
               data-testid={`company-option-${r.ticker}`}
               onMouseEnter={() => setActive(i)}

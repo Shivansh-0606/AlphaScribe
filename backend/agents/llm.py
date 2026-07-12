@@ -10,11 +10,15 @@ Public surface (`chat_text`, `chat_json`, `DEFAULT_LIGHT_MODEL`,
 """
 from __future__ import annotations
 import asyncio
+import ipaddress
 import json
 import os
 import re
+import socket
+import threading
 from contextvars import ContextVar
 from typing import Type, TypeVar, get_origin, get_args
+from urllib.parse import urlparse
 from pydantic import BaseModel, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
@@ -97,6 +101,31 @@ def _active() -> dict:
     return {"provider": provider, "api_key": key, "light": light, "heavy": heavy, "base_url": base_url}
 
 
+def assert_public_url(url: str) -> None:
+    """Raise ValueError unless `url` is an http(s) endpoint on a public host.
+
+    SSRF guard for the client-supplied custom LLM base_url: a caller must not be
+    able to point the server's outbound request at loopback/private/link-local/
+    reserved addresses (cloud metadata at 169.254.169.254, intranet hosts).
+    ponytail: resolves the host once here; a determined attacker could DNS-rebind
+    between this check and the SDK's own connect. Pin the resolved IP in the HTTP
+    client if that threat ever matters.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("must be an http(s) URL")
+    try:
+        infos = socket.getaddrinfo(parsed.hostname, parsed.port,
+                                   proto=socket.IPPROTO_TCP)
+    except socket.gaierror as e:
+        raise ValueError("host does not resolve") from e
+    for *_, sockaddr in infos:
+        ip = ipaddress.ip_address(sockaddr[0])
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            raise ValueError("resolves to a non-public address")
+
+
 def _resolve_model(model: str, cfg: dict) -> str:
     if model == DEFAULT_LIGHT_MODEL:
         return cfg["light"]
@@ -108,11 +137,37 @@ def _resolve_model(model: str, cfg: dict) -> str:
 # --------------------------------------------------------------------------
 # Provider backends (blocking; run in a thread)
 # --------------------------------------------------------------------------
+# Guards google.generativeai's process-global configure(). Shared with the
+# audio-transcription path in server.py, which uses the same global.
+GEMINI_LOCK = threading.Lock()
+
+# Per-call network timeout so a hung provider connection can't tie up a worker
+# thread indefinitely (the to_thread executor is shared with PDF/audio work).
+_REQUEST_TIMEOUT = float(os.environ.get("LLM_REQUEST_TIMEOUT", "120"))
+
+
+class NonRetryableLLMError(RuntimeError):
+    """A deterministic failure (bad config, truncated output) where retrying just
+    burns more calls + backoff for the same result. chat_text re-raises these
+    immediately instead of looping."""
+
+
 def _gen_gemini(system: str, user: str, model: str, key: str) -> str:
     import google.generativeai as genai
-    genai.configure(api_key=key)
-    gm = genai.GenerativeModel(model_name=model, system_instruction=system)
-    resp = gm.generate_content(user)
+    # google.generativeai.configure() sets a PROCESS-GLOBAL key, so two
+    # concurrent requests with different keys would clobber each other and a
+    # call could run under the wrong caller's key (cross-tenant billing/leak).
+    # Hold the lock across configure+generate so the key can't change mid-call.
+    # ponytail: global lock serializes all Gemini traffic; upgrade path is the
+    # newer google-genai SDK whose Client(api_key=...) takes a per-call key.
+    with GEMINI_LOCK:
+        genai.configure(api_key=key)
+        gm = genai.GenerativeModel(model_name=model, system_instruction=system)
+        resp = gm.generate_content(user, request_options={"timeout": _REQUEST_TIMEOUT})
+    cand = (getattr(resp, "candidates", None) or [None])[0]
+    if getattr(getattr(cand, "finish_reason", None), "name", "") == "MAX_TOKENS":
+        # Truncated brief — don't let a cut-off draft reach the fact-checker.
+        raise NonRetryableLLMError("Gemini output was truncated (MAX_TOKENS).")
     try:
         return resp.text or ""
     except Exception:  # noqa: BLE001
@@ -127,7 +182,8 @@ def _gen_gemini(system: str, user: str, model: str, key: str) -> str:
 def _gen_openai_compatible(system: str, user: str, model: str, key: str, base_url: str | None) -> str:
     # openai>=1.0 SDK; Groq is OpenAI-compatible via base_url.
     from openai import OpenAI
-    client = OpenAI(api_key=key, base_url=base_url) if base_url else OpenAI(api_key=key)
+    client = (OpenAI(api_key=key, base_url=base_url, timeout=_REQUEST_TIMEOUT)
+              if base_url else OpenAI(api_key=key, timeout=_REQUEST_TIMEOUT))
     resp = client.chat.completions.create(
         model=model,
         messages=[{"role": "system", "content": system},
@@ -143,7 +199,7 @@ def _gen_openai_compatible(system: str, user: str, model: str, key: str, base_ur
     if choice.finish_reason == "length":
         # Surface truncation instead of letting a cut-off brief flow into the
         # fact-checker as if it were complete.
-        raise RuntimeError(
+        raise NonRetryableLLMError(
             "LLM output was truncated by the max_tokens cap "
             "(LLM_MAX_OUTPUT_TOKENS). Raise it in backend/.env and retry."
         )
@@ -152,11 +208,14 @@ def _gen_openai_compatible(system: str, user: str, model: str, key: str, base_ur
 
 def _gen_anthropic(system: str, user: str, model: str, key: str) -> str:
     import anthropic
-    client = anthropic.Anthropic(api_key=key)
+    client = anthropic.Anthropic(api_key=key, timeout=_REQUEST_TIMEOUT)
     resp = client.messages.create(
         model=model, max_tokens=4096, system=system,
         messages=[{"role": "user", "content": user}],
     )
+    if resp.stop_reason == "max_tokens":
+        # Same truncation guard as the other providers (was missing here).
+        raise NonRetryableLLMError("Anthropic output was truncated (max_tokens=4096).")
     return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
 
 
@@ -164,7 +223,7 @@ def _generate_sync(system: str, user: str, model: str) -> str:
     cfg = _active()
     provider, key = cfg["provider"], cfg["api_key"]
     if not key:
-        raise RuntimeError(
+        raise NonRetryableLLMError(
             f"No API key for provider '{provider}'. Set it in backend/.env or "
             "paste a key in the app (Settings)."
         )
@@ -193,6 +252,8 @@ async def chat_text(system: str, user: str, *, model: str = DEFAULT_HEAVY_MODEL)
     for attempt in range(4):
         try:
             return await asyncio.to_thread(_generate_sync, system, user, model)
+        except NonRetryableLLMError:
+            raise  # deterministic — retrying wastes calls + backoff
         except Exception as e:  # noqa: BLE001
             last_err = e
             if attempt == 3:

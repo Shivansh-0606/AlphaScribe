@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 // Marketing landing page. Faithful recreation of the Claude Design handoff
 // ("AlphaScribe Landing.dc.html") — fixed dark theme, inline styles + the
@@ -99,7 +99,7 @@ export default function Landing() {
           </p>
           <div className="lp-fade4" style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 56 }}>
             <button onClick={toApp} className="lp-btn" style={{ background: "#E0E0E0", color: "#0A0A0A", border: "none", padding: "14px 28px", fontFamily: "'IBM Plex Mono',monospace", fontSize: 13, fontWeight: 600, letterSpacing: "0.03em", cursor: "pointer" }}>TRY FOR FREE →</button>
-            <a onClick={() => nav("/docs")} className="lp-ghost" style={{ background: "transparent", color: "#E0E0E0", border: "1px solid #333", padding: "14px 28px", fontFamily: "'IBM Plex Mono',monospace", fontSize: 13, letterSpacing: "0.03em", cursor: "pointer" }}>READ THE DOCS</a>
+            <Link to="/docs" className="lp-ghost" style={{ background: "transparent", color: "#E0E0E0", border: "1px solid #333", padding: "14px 28px", fontFamily: "'IBM Plex Mono',monospace", fontSize: 13, letterSpacing: "0.03em", cursor: "pointer", textDecoration: "none" }}>READ THE DOCS</Link>
           </div>
 
           {/* stylized dashboard mock */}
@@ -236,7 +236,7 @@ export default function Landing() {
               {[
                 ["SELF-HOSTED", "#666", "$0", "Run locally, use free-tier or self-hosted models", ["Gemini / Groq free tier", "Local Ollama / LM Studio", "One-command launcher", "MIT licensed, fully open"], false],
                 ["HOSTED", BLUE, "Usage-based", "We run the pipeline, you bring any provider key", ["Everything in Self-Hosted", "Managed retrieval index", "SSE pipeline streaming", "Priority support"], true],
-                ["DESK / TEAM", "#666", "Contact us", "Shared coverage, history, and comparisons across a desk", ["Everything in Hosted", "Shared coverage & history", "Compare across analysts", "SSO on request"], false],
+                ["DESK / TEAM", "#666", "Contact us", "Coming soon", ["Everything in Hosted", "Shared coverage & history", "Compare across analysts", "SSO on request"], false],
               ].map(([tier, tierColor, price, sub, feats, featured]) => (
                 <div key={tier} className="lp-lift" style={{ background: "#0A0A0A", padding: "36px 30px", border: "1px solid transparent", borderTop: featured ? `2px solid ${PURPLE}` : "1px solid transparent" }}>
                   <div className="mono" style={{ fontSize: 11, color: tierColor, letterSpacing: "0.12em", marginBottom: 10 }}>{tier}</div>
@@ -287,8 +287,8 @@ export default function Landing() {
             <span className="mono" style={{ fontSize: 11, color: "#555" }}>ALPHASCRIBE · EQUITY INTEL · MIT LICENSED</span>
           </div>
           <div className="mono" style={{ display: "flex", gap: 28, fontSize: 11, color: "#666" }}>
-            <a href="#" style={{ color: "#666" }}>GitHub</a>
-            <a onClick={() => nav("/docs")} style={{ color: "#666", cursor: "pointer" }}>Docs</a>
+            <a href="https://github.com/Shivansh-0606/AlphaScribe" target="_blank" rel="noopener noreferrer" style={{ color: "#666" }}>GitHub</a>
+            <Link to="/docs" style={{ color: "#666", cursor: "pointer", textDecoration: "none" }}>Docs</Link>
             <a href="#how" style={{ color: "#666" }}>Pipeline</a>
             <a href="#pricing" style={{ color: "#666" }}>Pricing</a>
           </div>

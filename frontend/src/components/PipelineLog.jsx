@@ -21,7 +21,10 @@ const NODE_LABEL = {
 export default function PipelineLog({ events, running }) {
   const seen = new Set();
   const uniq = events.filter((e) => {
-    const k = `${e.node}-${e.ts || Math.random()}-${e.message}`;
+    // Stable, content-based key so a frame replayed on reconnect (snapshot seed
+    // + re-streamed SSE) dedups. Math.random() here defeated dedup for any
+    // event missing a `ts`.
+    const k = `${e.node}-${e.status || ""}-${e.ts || ""}-${e.message || ""}`;
     if (seen.has(k)) return false;
     seen.add(k);
     return true;
