@@ -65,18 +65,14 @@ module.exports = {
         }
       },
       keyframes: {
-        'accordion-down': { from: { height: '0' }, to: { height: 'var(--radix-accordion-content-height)' } },
-        'accordion-up': { from: { height: 'var(--radix-accordion-content-height)' }, to: { height: '0' } },
         'blink': { '0%,49%': { opacity: '1' }, '50%,100%': { opacity: '0' } },
         'ticker-in': { from: { opacity: '0', transform: 'translateY(4px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
       },
       animation: {
-        'accordion-down': 'accordion-down 0.2s ease-out',
-        'accordion-up': 'accordion-up 0.2s ease-out',
         'blink': 'blink 1s steps(2) infinite',
         'ticker-in': 'ticker-in .18s ease-out both',
       }
     }
   },
-  plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
+  plugins: [require("@tailwindcss/typography")],
 };
