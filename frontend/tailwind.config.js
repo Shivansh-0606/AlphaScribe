@@ -52,10 +52,10 @@ module.exports = {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
-        brand: '#4A6CFF',
-        bullish: '#00E676',
-        bearish: '#FF3366',
-        warning: '#FFCC00',
+        brand: '#047857',    /* emerald-700 — legible accent/link text on cream */
+        bullish: '#059669',  /* emerald-600 — verified / positive */
+        bearish: '#DC2626',  /* red-600 — legible on light */
+        warning: '#D97706',  /* amber-600 — replaces neon yellow (invisible on cream) */
         chart: {
           '1': 'hsl(var(--chart-1))',
           '2': 'hsl(var(--chart-2))',

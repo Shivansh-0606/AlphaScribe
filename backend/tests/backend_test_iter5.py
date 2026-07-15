@@ -1,8 +1,11 @@
 """Iteration 5 tests: GET /api/companies/trending, DELETE /api/reports/{id}, guidance in reports."""
 import os
+import time
 import pytest
 import requests
 from dotenv import load_dotenv
+
+from conftest import login
 
 load_dotenv("/app/backend/.env")
 load_dotenv("/app/frontend/.env")
@@ -13,7 +16,7 @@ API = f"{BASE_URL}/api"
 
 @pytest.fixture(scope="module")
 def client():
-    return requests.Session()
+    return login(requests.Session(), "iter5")
 
 
 # --- Trending endpoint ---
@@ -56,18 +59,21 @@ def test_delete_nonexistent_returns_404(client):
 
 
 def test_delete_report_and_verify_removal(client):
-    # Find an existing report to delete
-    lst = client.get(f"{API}/reports", params={"limit": 50}).json()["reports"]
-    assert len(lst) > 0, "Need at least one report to test delete"
-    # Prefer a report we can delete safely — pick the oldest one that isn't NVDA (leave those for guidance test)
-    victim = None
-    for r in lst:
-        if r.get("ticker") != "NVDA":
-            victim = r
+    # Phase 4: GET /reports now scopes to the caller's own reports + curated
+    # public samples — deleting from that list could hit a shared sample, so
+    # generate + wait for a throwaway report of our own to delete instead.
+    r = client.post(f"{API}/reports/generate",
+                     json={"ticker": "AAPL", "query": "Delete-test filler question", "no_cache": True})
+    assert r.status_code == 200, r.text
+    rid = r.json()["job_id"]
+    deadline = time.time() + 300
+    while time.time() < deadline:
+        rr = client.get(f"{API}/reports/{rid}")
+        if rr.status_code == 200 and rr.json().get("status") == "completed":
             break
-    if victim is None:
-        victim = lst[-1]
-    rid = victim["id"]
+        time.sleep(3)
+    else:
+        raise TimeoutError(f"report {rid} did not complete in time")
 
     # DELETE
     d = client.delete(f"{API}/reports/{rid}")

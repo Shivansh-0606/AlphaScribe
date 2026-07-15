@@ -19,7 +19,7 @@ export const PROVIDERS = [
   { id: "openrouter", label: "OpenRouter", keyUrl: "https://openrouter.ai/keys", hint: "100+ models", custom: false },
   { id: "deepseek", label: "DeepSeek", keyUrl: "https://platform.deepseek.com/api_keys", hint: "Cheap, strong", custom: false },
   { id: "mistral", label: "Mistral", keyUrl: "https://console.mistral.ai/api-keys", hint: "EU, free tier", custom: false },
-  { id: "custom", label: "Custom (OpenAI-compatible)", keyUrl: "", hint: "aipipe, local…", custom: true },
+  { id: "custom", label: "Custom (OpenAI-compatible)", keyUrl: "", hint: "aipipe, OpenRouter…", custom: true },
 ];
 
 function load() {
@@ -32,6 +32,7 @@ function load() {
 
 export function LlmProvider({ children }) {
   const [cfg, setCfg] = useState(load); // {provider, api_key, base_url, model}
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const save = useCallback((next) => {
     setCfg(next);
@@ -57,11 +58,24 @@ export function LlmProvider({ children }) {
       : {};
 
   return (
-    <LlmCtx.Provider value={{ cfg, save, clear, payload }}>
+    <LlmCtx.Provider
+      value={{
+        cfg,
+        save,
+        clear,
+        payload,
+        settingsOpen,
+        openSettings: () => setSettingsOpen(true),
+        closeSettings: () => setSettingsOpen(false),
+      }}
+    >
       {children}
     </LlmCtx.Provider>
   );
 }
 
 export const useLlm = () =>
-  useContext(LlmCtx) || { cfg: {}, save: () => {}, clear: () => {}, payload: () => ({}) };
+  useContext(LlmCtx) || {
+    cfg: {}, save: () => {}, clear: () => {}, payload: () => ({}),
+    settingsOpen: false, openSettings: () => {}, closeSettings: () => {},
+  };

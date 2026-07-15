@@ -32,8 +32,8 @@ function QualityChart({ loaded, companies }) {
     Confidence: Math.round((r.sentiment_analysis?.confidence ?? 0) * 100),
   }));
   const COLORS = {
-    Overall: "#4A6CFF", Faithfulness: "#00E676", Precision: "#FFCC00",
-    Relevance: "#FF7A00", Confidence: "#9B6CFF",
+    Overall: "#059669", Faithfulness: "#2563EB", Precision: "#D97706",
+    Relevance: "#EA580C", Confidence: "#7C3AED",
   };
   return (
     <div className="border-t border-border p-6">
@@ -144,7 +144,7 @@ export default function Compare() {
   return (
     <div data-testid={COMPARE.root} className="min-h-screen">
       {/* Command bar */}
-      <div className="sticky top-0 z-10 bg-background border-b border-border">
+      <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border">
         <div className="h-14 px-6 flex items-center gap-3">
           <Scales size={16} className="text-primary" />
           <span className="mono text-[10px] text-muted-foreground uppercase tracking-widest">

@@ -1,14 +1,24 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkCitations from "@/lib/remarkCitations";
 import { REPORT } from "@/constants/testIds";
 import { FileText, CheckCircle, Warning } from "@phosphor-icons/react";
 
 export default function ResearchBrief({ report }) {
   const [tab, setTab] = useState("brief");
+  const [highlighted, setHighlighted] = useState(null);
   const factOk = report?.fact_check_status;
   const claims = report?.verified_claims || [];
   const errors = report?.validation_errors || [];
   const sources = report?.source_documents || [];
+
+  const goToSource = (n) => {
+    setTab("sources");
+    setHighlighted(n);
+    requestAnimationFrame(() => {
+      document.getElementById(`source-${n}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
 
   return (
     <div className="cell">
@@ -55,7 +65,30 @@ export default function ResearchBrief({ report }) {
           className="p-6 prose dark:prose-invert max-w-none prose-headings:font-sans prose-headings:tracking-tight prose-p:text-sm prose-p:leading-relaxed prose-p:text-primary/90 prose-strong:text-primary prose-a:text-brand prose-a:no-underline hover:prose-a:underline prose-code:text-brand prose-li:text-sm"
         >
           {report?.draft_report ? (
-            <ReactMarkdown>{report.draft_report}</ReactMarkdown>
+            <ReactMarkdown
+              remarkPlugins={[remarkCitations]}
+              components={{
+                a: ({ href, children }) => {
+                  const n = href?.startsWith("#source-") ? Number(href.slice(8)) : null;
+                  if (n && n >= 1 && n <= sources.length) {
+                    return (
+                      <button
+                        type="button"
+                        data-testid={REPORT.citationLink(n)}
+                        onClick={() => goToSource(n)}
+                        className="mono text-[11px] align-super text-brand hover:underline"
+                      >
+                        {children}
+                      </button>
+                    );
+                  }
+                  // unresolved citation or a real link the model happened to emit — no-op-safe
+                  return n ? <span className="text-muted-foreground">{children}</span> : <a href={href}>{children}</a>;
+                },
+              }}
+            >
+              {report.draft_report}
+            </ReactMarkdown>
           ) : (
             <div className="mono text-xs text-muted-foreground">No draft generated.</div>
           )}
@@ -118,7 +151,12 @@ export default function ResearchBrief({ report }) {
             <div className="p-6 mono text-xs text-muted-foreground">No sources.</div>
           )}
           {sources.map((s, i) => (
-            <div key={i} className="p-4">
+            <div
+              key={i}
+              id={`source-${i + 1}`}
+              data-testid={REPORT.sourceCard(i + 1)}
+              className={`p-4 ${highlighted === i + 1 ? "bg-brand/10 ring-1 ring-brand" : ""}`}
+            >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <FileText size={12} className="text-muted-foreground" />

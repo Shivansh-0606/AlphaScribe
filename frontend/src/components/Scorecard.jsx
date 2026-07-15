@@ -2,7 +2,7 @@ import { REPORT } from "@/constants/testIds";
 
 const BAR = ({ label, value, testId }) => {
   const pct = Math.round((value ?? 0) * 100);
-  const color = pct >= 80 ? "#00E676" : pct >= 60 ? "#FFCC00" : "#FF3366";
+  const color = pct >= 80 ? "#059669" : pct >= 60 ? "#D97706" : "#DC2626";
   return (
     <div>
       <div className="flex items-center justify-between mb-1">

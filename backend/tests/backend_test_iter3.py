@@ -9,6 +9,8 @@ import pytest
 import requests
 from dotenv import load_dotenv
 
+from conftest import login
+
 load_dotenv("/app/backend/.env")
 load_dotenv("/app/frontend/.env")
 
@@ -19,6 +21,7 @@ API = f"{BASE_URL}/api"
 @pytest.fixture(scope="module")
 def client():
     s = requests.Session()
+    login(s, "iter3")
     return s
 
 

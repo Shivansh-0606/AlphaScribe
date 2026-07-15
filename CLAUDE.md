@@ -9,6 +9,13 @@ into grounded research briefs, served by FastAPI to a React UI.
   `agents/`. Flow: `retriever → (extractor ‖ tone) → synthesizer →
   fact_checker`, with a conditional router that retries the synthesizer or
   ends (`agents/graph.py`). State is a `TypedDict` in `agents/state.py`.
+- **Auth is a login wall** (`agents/auth.py`): every tool endpoint requires a
+  session (`current_user` dependency in `server.py`); only Landing, Docs,
+  `/health`, and `/auth/*` are public. Stdlib-only — `hashlib.scrypt` for
+  password hashing, `secrets.token_urlsafe` opaque session tokens hashed at
+  rest in a Mongo `sessions` collection (no JWT, no `bcrypt`/`passlib`). This
+  is a deliberate, intentional design — not dead scaffold to prune. Do not
+  strip it or reintroduce a JWT/OAuth dependency.
 - **LLM access** goes through `agents/llm.py` only — `chat_text` / `chat_json`.
   It is multi-provider (Gemini, OpenAI-compatible, Anthropic) with per-request
   keys via a `contextvar`. Do not call provider SDKs directly from nodes.
@@ -33,13 +40,25 @@ into grounded research briefs, served by FastAPI to a React UI.
   via `data-testid`. Add new IDs there, not inline string literals.
 - **Client persistence**: `usePersistedState` (sessionStorage) and the
   watchlist store (`lib/watchlist.js`, `useSyncExternalStore`). Reuse these.
+- **Single light theme.** The app uses a warm-light / editorial-fintech theme:
+  a cream paper canvas, ink-navy type, and an emerald→teal signature accent.
+  `index.css` defines exactly one token set (`:root`) — there is deliberately
+  no theme toggle and no second (dark) token set. Semantic colors are CSS
+  variables consumed via `hsl(var(--x))`; the `brand`/`bullish`/`bearish`/
+  `warning` accents are hex in `tailwind.config.js`. The emerald signature
+  gradient uses `--brand-from`/`--brand-to`. Keep new UI on these tokens — no
+  raw hex in JSX except the marketing `Landing.jsx`/`Docs.jsx` (which hardcode
+  their own aligned palette) and the serif PDF-export template in
+  `ReportView.jsx`. Do not add a theme toggle or a second token set.
 
 ## Dependencies
 
 Keep both dependency manifests lean — they were deliberately pruned of an
 unused scaffold. Before adding a dependency, confirm nothing already installed
-(or the stdlib / platform) does the job. The app has **no auth**; do not add
-auth, JWT, OAuth, or cloud-SDK dependencies.
+(or the stdlib / platform) does the job. Auth exists (see Architecture above)
+but is stdlib-only; do not add JWT, OAuth, or cloud-SDK auth dependencies.
+Password-reset OTP email goes through the existing `httpx` dep to Resend
+(`agents/notify.py`) — no email SDK.
 
 ## Backend specifics
 
@@ -49,6 +68,11 @@ auth, JWT, OAuth, or cloud-SDK dependencies.
   stdlib `re` only). Keep it that way.
 - External data sources are best-effort: BSE/yfinance failures must return
   `None` and fall back, never crash a request (see `agents/ingest.py`).
+- Login and password-reset OTP attempts are rate-limited by a process-local
+  in-memory counter in `agents/auth.py` (`is_rate_limited`/`record_hit`),
+  keyed by email only (not IP — see the comment on `/auth/login` in
+  `server.py`). Fine for the single-instance backend; would need Mongo/Redis
+  if this ever scales to multiple instances.
 
 ## Running & testing
 

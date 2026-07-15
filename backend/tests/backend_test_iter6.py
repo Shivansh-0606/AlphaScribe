@@ -5,6 +5,8 @@ import pytest
 import requests
 from dotenv import load_dotenv
 
+from conftest import login
+
 load_dotenv("/app/backend/.env")
 load_dotenv("/app/frontend/.env")
 
@@ -16,6 +18,7 @@ API = f"{BASE_URL}/api"
 def client():
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json"})
+    login(s, "iter6")
     return s
 
 

@@ -5,7 +5,7 @@ export default function ToneGauge({ tone }) {
   const conf = Math.max(0, Math.min(1, tone?.confidence ?? 0));
   const bullish = sentiment === "Bullish";
   const bearish = sentiment === "Bearish";
-  const color = bullish ? "#00E676" : bearish ? "#FF3366" : "#888";
+  const color = bullish ? "#059669" : bearish ? "#DC2626" : "#5C6774";
   const pct = Math.round(conf * 100);
   // Bar direction: bullish grows right, bearish grows left, neutral centered
   let leftPct = 50;

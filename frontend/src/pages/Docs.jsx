@@ -1,29 +1,31 @@
 // Documentation page. Recreation of the Claude Design handoff
 // ("AlphaScribe Docs.dc.html") — sidebar + centered content — restyled to the
-// app's own design system (dark-only, IBM Plex Sans/Mono, #0A0A0A palette,
-// sharp corners, #6E93FF accent) so it matches the rest of AlphaScribe rather
-// than the handoff's stock light Helvetica theme. Sibling of Landing.jsx.
+// app's own design system (warm-light cream canvas, IBM Plex Sans/Mono, ink-navy
+// type, sharp corners, emerald accent) so it matches the rest of AlphaScribe.
+// Sibling of Landing.jsx.
 import { Link } from "react-router-dom";
+import { useAuth } from "@/lib/auth";
 
 const SANS = "'IBM Plex Sans', system-ui, -apple-system, sans-serif";
 const MONO = "'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace";
 
-// Dark palette aligned to index.css (:root) + Landing.jsx.
+// Warm-light palette aligned to index.css (:root) + Landing.jsx.
 const C = {
-  bg: "#0A0A0A",
-  surface: "#121212",
-  text: "#E0E0E0",
-  textSoft: "#b4b4b4",
-  muted: "#888888",
-  border: "#222222",
-  hover: "#1a1a1a",
-  accent: "#6E93FF",
-  codeBg: "#000000",
-  codeText: "#d4d4d4",
-  codeBorder: "#222222",
+  bg: "#EEEAE2",
+  surface: "#F6F3EF",
+  text: "#15212F",
+  textSoft: "#33404E",
+  muted: "#59626F",
+  border: "#DBD5CC",
+  hover: "#E9E3DA",
+  accent: "#047857",
+  codeBg: "#E9ECEF",
+  codeText: "#16302A",
+  codeBorder: "#DBD5CC",
 };
 
 export default function Docs() {
+  const { user } = useAuth();
   const rootStyle = {
     display: "flex",
     minHeight: "100vh",
@@ -116,8 +118,8 @@ export default function Docs() {
     fontWeight: 700,
     fontFamily: MONO,
     padding: "3px 8px",
-    color: "#0A0A0A",
-    background: m === "GET" ? C.accent : m === "POST" ? "#00E676" : "#FF0055",
+    color: "#ffffff",
+    background: m === "GET" ? C.accent : m === "POST" ? "#0D9488" : "#DC2626",
   });
 
   const navItems = [
@@ -150,11 +152,13 @@ export default function Docs() {
   const envVars = [
     { name: "MONGO_URL", default: "mongodb://localhost:27017", desc: "MongoDB connection string. Point at Atlas to skip the local download." },
     { name: "DB_NAME", default: "alphascribe", desc: "Database name used for filings, chunks, reports, and jobs." },
-    { name: "CORS_ORIGINS", default: "*", desc: "Comma-separated allowed origins." },
+    { name: "CORS_ORIGINS", default: "http://localhost:3001", desc: "Comma-separated allowed origins. Must be explicit (not \"*\") — the auth cookie requires credentialed CORS." },
     { name: "GEMINI_API_KEY", default: "(empty)", desc: "Google Gemini key. Also required for audio transcription regardless of chat provider." },
     { name: "GROQ_API_KEY", default: "(empty)", desc: "Groq key. Free, fast Llama models." },
     { name: "OPENAI_API_KEY", default: "(empty)", desc: "OpenAI key." },
     { name: "LLM_PROVIDER", default: "gemini", desc: "Server-default provider: gemini, groq, openai, or another supported provider." },
+    { name: "RESEND_API_KEY", default: "(empty)", desc: "Sends password-reset OTP emails via Resend. Unset in dev: the OTP is logged to the backend console instead." },
+    { name: "OTP_PEPPER", default: "(dev fallback)", desc: "Server-side secret for hashing password-reset OTPs. Set a random string in production — the fallback is not secret." },
   ];
 
   const endpoints = [
@@ -197,7 +201,7 @@ export default function Docs() {
   return (
     <div className="docs" style={rootStyle}>
       <style>{`
-        .docs ::selection { background: #6E93FF; color: #0A0A0A; }
+        .docs ::selection { background: #0B8F6A; color: #ffffff; }
         .docs a { text-decoration: none; }
         .docs-nav a:hover { background: ${C.hover}; color: ${C.text}; }
         .docs-nav a.docs-logo:hover { background: transparent; }
@@ -206,7 +210,7 @@ export default function Docs() {
 
       {/* Sidebar */}
       <nav style={sidebarStyle} className="docs-nav">
-        <Link to="/" className="docs-logo" title="Back to landing page" style={{ display: "flex", alignItems: "center", gap: "9px", padding: "0 4px 20px", cursor: "pointer" }}>
+        <Link to={user ? "/dashboard" : "/"} className="docs-logo" title={user ? "Go to dashboard" : "Back to landing page"} style={{ display: "flex", alignItems: "center", gap: "9px", padding: "0 4px 20px", cursor: "pointer" }}>
           <span style={{ fontFamily: MONO, color: C.accent, fontSize: "16px" }}>&gt;_</span>
           <div style={{ fontSize: "15px", fontWeight: 700, color: C.text, letterSpacing: "0.01em" }}>ALPHA<span style={{ color: C.accent }}>SCRIBE</span></div>
         </Link>
@@ -226,7 +230,7 @@ export default function Docs() {
       <main style={mainStyle}>
         <header style={{ paddingBottom: "28px", marginBottom: "36px", borderBottom: `1px solid ${C.border}` }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "4px 10px", background: C.surface, border: `1px solid ${C.border}`, fontFamily: MONO, fontSize: "12px", color: C.muted, fontWeight: 600, marginBottom: "16px" }}>
-            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#3fb950" }}></span>
+            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#059669" }}></span>
             v0.1.0 &nbsp;·&nbsp; MIT
           </div>
           <h1 style={{ fontSize: "38px", fontWeight: 700, letterSpacing: "-0.02em", color: C.text, margin: "0 0 10px", lineHeight: 1.15 }}>AlphaScribe</h1>

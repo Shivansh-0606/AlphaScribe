@@ -6,6 +6,8 @@ import time
 import pytest
 import requests
 
+from conftest import login
+
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8001").rstrip("/")
 API = f"{BASE_URL}/api"
 
@@ -14,6 +16,7 @@ API = f"{BASE_URL}/api"
 def client():
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json"})
+    login(s, "backendtest")
     return s
 
 

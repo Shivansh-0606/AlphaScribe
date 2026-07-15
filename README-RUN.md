@@ -106,8 +106,10 @@ Backend settings live in `backend/.env`:
 ```
 MONGO_URL="mongodb://localhost:27017"   # local MongoDB the launcher runs
 DB_NAME="alphascribe"
-CORS_ORIGINS="*"
+CORS_ORIGINS="http://localhost:3001"    # must be explicit, not "*" — cookies require it
 GEMINI_API_KEY=your_key_here            # powers all the AI features
+RESEND_API_KEY=                         # password-reset OTP email; unset = OTP logged to console in dev
+OTP_PEPPER=                             # secret for hashing OTPs; set a random string in production
 ```
 
 - The AI features (financial extraction, report synthesis, fact-checking,

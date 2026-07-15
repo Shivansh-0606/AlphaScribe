@@ -105,6 +105,8 @@ export default function CompanyCombobox({
         <input
           ref={inputRef}
           autoFocus={autoFocus}
+          type="text"
+          autoComplete="off"
           data-testid={testId}
           role="combobox"
           aria-expanded={open}

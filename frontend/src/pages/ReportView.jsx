@@ -186,7 +186,7 @@ export default function ReportView() {
   return (
     <div data-testid={REPORT.root} className="min-h-screen">
       {/* Command bar */}
-      <div className="sticky top-0 z-10 bg-background border-b border-border">
+      <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border">
         <div className="h-14 px-6 flex items-center gap-3">
           <button
             onClick={() => nav("/app")}

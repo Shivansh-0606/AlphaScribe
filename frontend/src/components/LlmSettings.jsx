@@ -3,20 +3,51 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Gear, X, Check, ArrowSquareOut } from "@phosphor-icons/react";
 import { useLlm, PROVIDERS } from "@/lib/llmSettings";
+import { useAuth } from "@/lib/auth";
 
-/** Sidebar button + modal to set a bring-your-own LLM provider + API key. */
+
+// Quick client-side heads-up only — NOT the security boundary. The backend's
+// SSRF guard (agents/llm.py assert_public_url) is authoritative and re-checks
+// via DNS resolution; this just saves the user a round-trip for obvious cases.
+function looksPrivate(url) {
+  try {
+    const h = new URL(url).hostname.toLowerCase();
+    return (
+      h === "localhost" || h === "0.0.0.0" || h === "::1" ||
+      /^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(h) || /^169\.254\./.test(h) ||
+      h.endsWith(".local")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Modal (only) to set a bring-your-own LLM provider + API key. It renders
+ * nothing until `openSettings()` is called on the LlmProvider context — the
+ * triggers now live on /settings and in the first-run banner, so the sidebar
+ * stays a pure navigation surface.
+ */
 export default function LlmSettings() {
-  const { cfg, save, clear } = useLlm();
-  const [open, setOpen] = useState(false);
-  const [provider, setProvider] = useState(cfg.provider || "gemini");
+  const { user } = useAuth();
+  const isAdmin = !!user?.is_admin;
+  // Custom (bring-your-own endpoint) is admin-only — see server.py
+  // /reports/generate, which enforces this server-side regardless of what the
+  // UI shows. Hiding it here is just so non-admins never hit that 403.
+  const visibleProviders = PROVIDERS.filter((p) => p.id !== "custom" || isAdmin);
+
+  const { cfg, save, clear, settingsOpen: open, closeSettings } = useLlm();
+  const [provider, setProvider] = useState(
+    cfg.provider === "custom" && !isAdmin ? "gemini" : cfg.provider || "gemini"
+  );
   const [apiKey, setApiKey] = useState(cfg.api_key || "");
   const [baseUrl, setBaseUrl] = useState(cfg.base_url || "");
   const [model, setModel] = useState(cfg.model || "");
 
-  const active = PROVIDERS.find((p) => p.id === (cfg.provider || "gemini"));
   const selected = PROVIDERS.find((p) => p.id === provider);
   const configured = !!cfg.api_key;
-  const isCustom = provider === "custom";
+  const isCustom = provider === "custom" && isAdmin;
 
   const onSave = () => {
     if (!apiKey.trim()) {
@@ -26,6 +57,16 @@ export default function LlmSettings() {
     if (isCustom && !baseUrl.trim()) {
       toast.error("Custom provider needs a base URL");
       return;
+    }
+    if (isCustom && looksPrivate(baseUrl.trim())) {
+      // Not blocked here — the backend is authoritative. It allows this only
+      // if the server operator opted in (LLM_ALLOW_PRIVATE_BASE_URL=true);
+      // otherwise report generation will fail with an explanation.
+      toast.warning(
+        "That's a local/private address — this only works if the server you're "
+        + "connecting to has LLM_ALLOW_PRIVATE_BASE_URL enabled (e.g. your own "
+        + "local AlphaScribe instance)."
+      );
     }
     if (isCustom && !model.trim()) {
       toast.error("Custom provider needs a model name");
@@ -38,7 +79,7 @@ export default function LlmSettings() {
       model: isCustom ? model.trim() : "",
     });
     toast.success(`Using your ${selected?.label} key`);
-    setOpen(false);
+    closeSettings();
   };
 
   const onClear = () => {
@@ -49,18 +90,6 @@ export default function LlmSettings() {
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        data-testid="llm-settings-open"
-        className="w-full flex items-center gap-2 px-4 h-10 text-xs mono uppercase tracking-widest text-muted-foreground hover:text-primary hover:bg-surface border-l-2 border-transparent"
-        title="Set your own LLM API key"
-      >
-        <Gear size={14} /> LLM Key
-        <span className={`ml-auto text-[9px] ${configured ? "text-bullish" : "text-muted-foreground"}`}>
-          {configured ? active?.label?.split(" ")[0] : "default"}
-        </span>
-      </button>
-
       {open && createPortal(
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
@@ -71,7 +100,7 @@ export default function LlmSettings() {
             <div className="h-12 px-4 flex items-center border-b border-border bg-[hsl(var(--surface))]">
               <Gear size={15} className="text-primary mr-2" />
               <span className="mono text-xs uppercase tracking-widest text-primary">LLM Provider &amp; Key</span>
-              <button onClick={() => setOpen(false)} className="ml-auto text-muted-foreground hover:text-primary">
+              <button onClick={closeSettings} className="ml-auto text-muted-foreground hover:text-primary">
                 <X size={16} />
               </button>
             </div>
@@ -86,7 +115,7 @@ export default function LlmSettings() {
               <div>
                 <div className="label-mono mb-2">Provider</div>
                 <div className="grid grid-cols-1 gap-1.5">
-                  {PROVIDERS.map((p) => (
+                  {visibleProviders.map((p) => (
                     <button
                       key={p.id}
                       onClick={() => setProvider(p.id)}
@@ -113,7 +142,10 @@ export default function LlmSettings() {
                       className="w-full input-bg border border-border text-primary text-sm px-3 py-2 focus:outline-none focus:border-primary"
                     />
                     <div className="mono text-[10px] text-muted-foreground mt-1">
-                      OpenAI-compatible endpoint (must end in /v1).
+                      OpenAI-compatible endpoint (must end in /v1). The server
+                      (not your browser) calls this URL, so localhost/private
+                      addresses only work if the server opted in via
+                      LLM_ALLOW_PRIVATE_BASE_URL.
                     </div>
                   </div>
                   <div>

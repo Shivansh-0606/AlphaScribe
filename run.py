@@ -351,7 +351,7 @@ def main() -> None:
             die("MongoDB did not start in time")
 
     spawn("api", [str(venv_python()), "-m", "uvicorn", "server:app",
-                  "--host", "127.0.0.1", "--port", str(BACKEND_PORT), "--reload"],
+                  "--host", "127.0.0.1", "--port", str(BACKEND_PORT)],
           BACKEND, env={**os.environ})
 
     web_env = {**os.environ, "BROWSER": "none", "PORT": str(FRONTEND_PORT)}

@@ -110,10 +110,18 @@ def assert_public_url(url: str) -> None:
     ponytail: resolves the host once here; a determined attacker could DNS-rebind
     between this check and the SDK's own connect. Pin the resolved IP in the HTTP
     client if that threat ever matters.
+
+    Escape hatch: LLM_ALLOW_PRIVATE_BASE_URL=true in the server's own .env skips
+    this check entirely, so a self-hoster can point at a local LLM (Ollama, LM
+    Studio, ...). This is an operator-controlled deployment setting, not
+    something a client request can flip — only set it for a single-user/local
+    instance, since it reopens the SSRF hole for anyone who can reach this API.
     """
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise ValueError("must be an http(s) URL")
+    if os.environ.get("LLM_ALLOW_PRIVATE_BASE_URL", "").strip().lower() in ("1", "true", "yes"):
+        return
     try:
         infos = socket.getaddrinfo(parsed.hostname, parsed.port,
                                    proto=socket.IPPROTO_TCP)
@@ -182,8 +190,11 @@ def _gen_gemini(system: str, user: str, model: str, key: str) -> str:
 def _gen_openai_compatible(system: str, user: str, model: str, key: str, base_url: str | None) -> str:
     # openai>=1.0 SDK; Groq is OpenAI-compatible via base_url.
     from openai import OpenAI
-    client = (OpenAI(api_key=key, base_url=base_url, timeout=_REQUEST_TIMEOUT)
-              if base_url else OpenAI(api_key=key, timeout=_REQUEST_TIMEOUT))
+    # max_retries=0: chat_text already owns the retry/backoff loop. The SDK's
+    # default (2) multiplies on top of ours — 4 attempts x 3 SDK tries x 120s
+    # timeout balloons a hung request to ~24 min before it surfaces.
+    client = (OpenAI(api_key=key, base_url=base_url, timeout=_REQUEST_TIMEOUT, max_retries=0)
+              if base_url else OpenAI(api_key=key, timeout=_REQUEST_TIMEOUT, max_retries=0))
     resp = client.chat.completions.create(
         model=model,
         messages=[{"role": "system", "content": system},
@@ -208,7 +219,9 @@ def _gen_openai_compatible(system: str, user: str, model: str, key: str, base_ur
 
 def _gen_anthropic(system: str, user: str, model: str, key: str) -> str:
     import anthropic
-    client = anthropic.Anthropic(api_key=key, timeout=_REQUEST_TIMEOUT)
+    # max_retries=0 for the same reason as the OpenAI path: chat_text owns retries,
+    # the SDK default (2) would compound multiplicatively.
+    client = anthropic.Anthropic(api_key=key, timeout=_REQUEST_TIMEOUT, max_retries=0)
     resp = client.messages.create(
         model=model, max_tokens=4096, system=system,
         messages=[{"role": "user", "content": user}],
@@ -321,7 +334,15 @@ async def chat_json(
         "with index/id fields. No prose, no markdown fences.\n"
         + _schema_hint(schema)
     )
-    raw = await chat_text(system + guardrail, user, model=model)
+    # Qwen3 is a hybrid "thinking" model — it emits a <think>...</think> block
+    # before every answer by default, which is pure latency overhead for a
+    # mechanical JSON-extraction task (no benefit, and on local/CPU inference
+    # it's often what pushes a call past the timeout). "/no_think" is Qwen's
+    # documented prompt-level soft-switch, honored across serving backends
+    # (Ollama, vLLM, native API) since it's trained into the chat template.
+    real_model = _resolve_model(model, _active())
+    user_msg = f"{user}\n/no_think" if "qwen" in real_model.lower() else user
+    raw = await chat_text(system + guardrail, user_msg, model=model)
     raw = _strip_code_fence(raw)
     try:
         data = json.loads(raw)

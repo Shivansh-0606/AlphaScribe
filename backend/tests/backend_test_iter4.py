@@ -4,6 +4,8 @@ import pytest
 import requests
 from dotenv import load_dotenv
 
+from conftest import login
+
 load_dotenv("/app/backend/.env")
 load_dotenv("/app/frontend/.env")
 
@@ -13,7 +15,7 @@ API = f"{BASE_URL}/api"
 
 @pytest.fixture(scope="module")
 def client():
-    return requests.Session()
+    return login(requests.Session(), "iter4")
 
 
 def test_search_apple(client):

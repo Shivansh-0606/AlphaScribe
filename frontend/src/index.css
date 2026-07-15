@@ -6,73 +6,45 @@
 
 @layer base {
   :root {
-    /* Terminal-Next / Swiss & High-Contrast (DARK default) */
-    --background: 0 0% 4%;          /* #0A0A0A */
-    --foreground: 0 0% 88%;         /* #E0E0E0 */
-    --surface: 0 0% 7%;             /* #121212 */
-    --surface-hover: 0 0% 10%;      /* #1A1A1A */
+    /* Warm-Light / Editorial-Fintech. Light theme with an emerald signature —
+       cream paper canvas, ink-navy ink, one confident emerald→teal accent.
+       Single token set (still no theme toggle); see CLAUDE.md. */
+    --background: 38 27% 91%;       /* #EEEAE2 warm parchment — softened from glare */
+    --foreground: 215 40% 14%;      /* #15212F ink navy */
+    --surface: 40 28% 95%;          /* #F6F3EF soft off-white — cards lift, not pure white */
+    --surface-hover: 38 22% 89%;    /* #E9E3DA gentle warm hover */
 
-    --card: 0 0% 7%;
-    --card-foreground: 0 0% 88%;
-    --popover: 0 0% 7%;
-    --popover-foreground: 0 0% 88%;
+    --card: 40 28% 95%;
+    --card-foreground: 215 40% 14%;
+    --popover: 40 28% 95%;
+    --popover-foreground: 215 40% 14%;
 
-    --primary: 0 0% 88%;
-    --primary-foreground: 0 0% 4%;
-    --secondary: 0 0% 12%;
-    --secondary-foreground: 0 0% 88%;
-    --muted: 0 0% 10%;
-    --muted-foreground: 0 0% 53%;   /* #888 */
-    --accent: 0 0% 12%;
-    --accent-foreground: 0 0% 88%;
-    --destructive: 344 100% 50%;
+    --primary: 215 40% 14%;         /* ink navy — solid buttons + strong text */
+    --primary-foreground: 42 30% 96%; /* soft cream text on navy buttons */
+    --secondary: 38 20% 88%;        /* #E7E0D6 warm light */
+    --secondary-foreground: 215 40% 14%;
+    --muted: 38 22% 90%;            /* #ECE6DD */
+    --muted-foreground: 215 14% 40%; /* #59626F slate */
+    --accent: 162 36% 84%;          /* #CFE7DD softer emerald tint */
+    --accent-foreground: 162 84% 15%;
+    --destructive: 0 70% 46%;       /* #C62D2D */
     --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 13%;             /* #222 */
-    --input: 0 0% 13%;
-    --ring: 0 0% 88%;
-    --chart-1: 148 100% 45%;
-    --chart-2: 344 100% 55%;
-    --chart-3: 48 100% 50%;
-    --chart-4: 200 90% 55%;
-    --chart-5: 280 65% 60%;
+    --border: 36 18% 83%;           /* #DBD5CC warm hairline (reads on deeper paper) */
+    --input: 36 18% 83%;
+    --ring: 162 84% 28%;            /* deep emerald focus ring */
+    --chart-1: 162 78% 34%;         /* emerald */
+    --chart-2: 0 70% 48%;           /* red */
+    --chart-3: 32 90% 42%;          /* amber */
+    --chart-4: 210 84% 44%;         /* blue */
+    --chart-5: 280 52% 50%;         /* violet */
     --radius: 0px;
 
-    --input-bg: 0 0% 0%;            /* pure black inputs in dark mode */
-    --code-bg: 0 0% 0%;
-  }
+    --input-bg: 42 30% 96%;         /* #F8F5F0 warm off-white inputs */
+    --code-bg: 210 16% 92%;         /* #E9ECEF muted code surface */
 
-  html[data-theme="light"], .light {
-    --background: 0 0% 100%;        /* #FFFFFF */
-    --foreground: 0 0% 12%;         /* #1F1F1F */
-    --surface: 0 0% 97%;            /* #F7F7F7 */
-    --surface-hover: 0 0% 93%;
-
-    --card: 0 0% 97%;
-    --card-foreground: 0 0% 12%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 12%;
-
-    --primary: 0 0% 12%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 93%;
-    --secondary-foreground: 0 0% 12%;
-    --muted: 0 0% 93%;
-    --muted-foreground: 0 0% 40%;
-    --accent: 0 0% 93%;
-    --accent-foreground: 0 0% 12%;
-    --destructive: 344 90% 45%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 85%;
-    --input: 0 0% 85%;
-    --ring: 0 0% 12%;
-    --chart-1: 148 70% 35%;
-    --chart-2: 344 85% 45%;
-    --chart-3: 38 90% 45%;
-    --chart-4: 200 80% 45%;
-    --chart-5: 280 55% 50%;
-
-    --input-bg: 0 0% 100%;
-    --code-bg: 0 0% 96%;
+    /* Emerald→teal signature gradient — deepened so it reads rich, not neon. */
+    --brand-from: 162 88% 28%;      /* #069169 deep emerald */
+    --brand-to: 176 82% 29%;        /* #0D8C82 deep teal */
   }
 }
 
@@ -85,11 +57,14 @@
     -moz-osx-font-smoothing: grayscale;
     font-feature-settings: "ss01", "ss02", "cv01";
   }
-  ::selection { background: #E0E0E0; color: #0A0A0A; }
+  button, a, input, li {
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease;
+  }
+  ::selection { background: #0B8F6A; color: #ffffff; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
-  ::-webkit-scrollbar-track { background: #0A0A0A; }
-  ::-webkit-scrollbar-thumb { background: #222; }
-  ::-webkit-scrollbar-thumb:hover { background: #333; }
+  ::-webkit-scrollbar-track { background: #E7E1D7; }
+  ::-webkit-scrollbar-thumb { background: #CFC7B8; }
+  ::-webkit-scrollbar-thumb:hover { background: #B6AC98; }
 }
 
 @layer components {
@@ -119,8 +94,10 @@
     background-size: 32px 32px;
   }
   .cell {
-    background: hsl(var(--surface));
+    background: hsl(var(--surface) / 0.78);
     border: 1px solid hsl(var(--border));
+    backdrop-filter: blur(12px) saturate(1.15);
+    -webkit-backdrop-filter: blur(12px) saturate(1.15);
   }
   .divider-x > * + * { border-left: 1px solid hsl(var(--border)); }
   .divider-y > * + * { border-top: 1px solid hsl(var(--border)); }

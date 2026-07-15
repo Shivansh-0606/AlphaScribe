@@ -6,19 +6,27 @@ It drives the REAL running pipeline over HTTP (ensure -> generate -> poll),
 then aggregates the `scorecard` each report already carries. No re-implemented
 scoring, no new dependencies (stdlib only). Throwaway dev tool — delete freely.
 
+Every tool route is behind AlphaScribe's login wall (agents/auth.py), so this
+logs in first (email/password of an existing account -- register one via the
+frontend if you don't have one) and reuses the session cookie for every call.
+
 Usage (server must be running on :8001 with an LLM key configured):
-    python eval_scorecard.py                        # default US+India pair set
-    python eval_scorecard.py --pairs AAPL:"key risks" TCS:"margin trends"
-    python eval_scorecard.py --base-url http://localhost:8001/api
-    python eval_scorecard.py --llm-provider gemini --llm-key $GEMINI_API_KEY
-    python eval_scorecard.py --selftest             # verify the aggregation math
+    python eval_scorecard.py --email you@x.com                    # prompts for password
+    python eval_scorecard.py --email you@x.com --password secret  # or set
+                                    ALPHASCRIBE_EMAIL / ALPHASCRIBE_PASSWORD
+    python eval_scorecard.py --email you@x.com --pairs AAPL:"key risks" TCS:"margin trends"
+    python eval_scorecard.py --base-url http://localhost:8001/api --email you@x.com
+    python eval_scorecard.py --selftest             # verify the aggregation math (no login)
 
 The printed averages are what you can honestly put on a resume — quote them WITH
 the N (e.g. "avg faithfulness 0.9X across 8 automated evals"), never as N=1.
 """
 from __future__ import annotations
 import argparse
+import getpass
 import json
+import os
+import re
 import statistics
 import sys
 import time
@@ -41,28 +49,51 @@ DEFAULT_PAIRS = [
 METRICS = ("faithfulness", "context_precision", "answer_relevance", "overall")
 
 
-def _post(base: str, path: str, body: dict, timeout: float = 30.0) -> dict:
+def _post(base: str, path: str, body: dict, cookie: str = "",
+          timeout: float = 30.0, capture_headers: bool = False):
     data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        base + path, data=data, headers={"Content-Type": "application/json"}
-    )
+    headers = {"Content-Type": "application/json"}
+    if cookie:
+        headers["Cookie"] = cookie
+    req = urllib.request.Request(base + path, data=data, headers=headers)
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        parsed = json.loads(r.read())
+        return (parsed, r.headers) if capture_headers else parsed
+
+
+def _get(base: str, path: str, cookie: str = "", timeout: float = 30.0) -> dict:
+    headers = {"Cookie": cookie} if cookie else {}
+    req = urllib.request.Request(base + path, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read())
 
 
-def _get(base: str, path: str, timeout: float = 30.0) -> dict:
-    with urllib.request.urlopen(base + path, timeout=timeout) as r:
-        return json.loads(r.read())
+def login(base: str, email: str, password: str) -> str:
+    """POST /auth/login and return a raw `Cookie:` header value.
+
+    The session cookie is set with Secure (server.py:_set_session_cookie),
+    which a standards-compliant client would refuse to echo back over plain
+    http://localhost. This is a script, not a browser, so it bypasses that by
+    reading the token straight out of Set-Cookie and resending it manually.
+    """
+    body, headers = _post(base, "/auth/login",
+                          {"email": email, "password": password, "remember": False},
+                          timeout=15.0, capture_headers=True)
+    raw = headers.get("Set-Cookie", "")
+    m = re.search(r"as_session=([^;]+)", raw)
+    if not m:
+        raise RuntimeError(f"login succeeded but no session cookie in response: {raw!r}")
+    return f"as_session={m.group(1)}"
 
 
-def run_one(base: str, ticker: str, query: str, llm: dict,
+def run_one(base: str, ticker: str, query: str, llm: dict, cookie: str,
             no_cache: bool, poll_timeout: float) -> dict | None:
     """Ensure -> generate -> poll. Returns the report's scorecard, or None on
     any best-effort failure (missing data source, pipeline failure)."""
     ticker = ticker.strip().upper()
     try:
         _post(base, "/companies/ensure", {"ticker": ticker, "refresh": False},
-              timeout=180.0)
+              cookie=cookie, timeout=180.0)
     except urllib.error.HTTPError as e:
         print(f"  ! {ticker}: ensure failed ({e.code}) — skipping", file=sys.stderr)
         return None
@@ -72,7 +103,7 @@ def run_one(base: str, ticker: str, query: str, llm: dict,
 
     gen_body = {"ticker": ticker, "query": query, "no_cache": no_cache, **llm}
     try:
-        res = _post(base, "/reports/generate", gen_body, timeout=30.0)
+        res = _post(base, "/reports/generate", gen_body, cookie=cookie, timeout=30.0)
     except urllib.error.HTTPError as e:
         print(f"  ! {ticker}: generate rejected ({e.code}) — skipping", file=sys.stderr)
         return None
@@ -82,7 +113,7 @@ def run_one(base: str, ticker: str, query: str, llm: dict,
 
     deadline = time.time() + poll_timeout
     while time.time() < deadline:
-        doc = _get(base, f"/reports/{job_id}")
+        doc = _get(base, f"/reports/{job_id}", cookie=cookie)
         if "report" in doc:                       # completed
             return doc["report"].get("scorecard")
         if doc.get("status") in ("failed", "cancelled"):
@@ -137,6 +168,10 @@ def _selftest() -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--base-url", default="http://localhost:8001/api")
+    ap.add_argument("--email", default=os.environ.get("ALPHASCRIBE_EMAIL"),
+                    help="existing AlphaScribe account (or set ALPHASCRIBE_EMAIL)")
+    ap.add_argument("--password", default=os.environ.get("ALPHASCRIBE_PASSWORD"),
+                    help="prompted for if omitted (or set ALPHASCRIBE_PASSWORD)")
     ap.add_argument("--pairs", nargs="*", default=None,
                     help='TICKER:"query" items; overrides the default set')
     ap.add_argument("--use-cache", action="store_true",
@@ -152,6 +187,18 @@ def main() -> int:
     if args.selftest:
         _selftest()
         return 0
+
+    if not args.email:
+        ap.error("--email is required (or set ALPHASCRIBE_EMAIL) — "
+                 "register an account via the frontend first if you don't have one")
+    password = args.password or getpass.getpass(f"Password for {args.email}: ")
+    try:
+        cookie = login(args.base_url, args.email, password)
+    except urllib.error.HTTPError as e:
+        print(f"Login failed ({e.code}). Wrong password, or no account for "
+              f"{args.email} yet — register via the frontend first.", file=sys.stderr)
+        return 1
+    print(f"Logged in as {args.email}\n")
 
     if args.pairs:
         pairs = []
@@ -176,7 +223,7 @@ def main() -> int:
     cards, rows = [], []
     for i, (ticker, query) in enumerate(pairs, 1):
         print(f"[{i}/{len(pairs)}] {ticker}: {query}")
-        card = run_one(args.base_url, ticker, query, llm,
+        card = run_one(args.base_url, ticker, query, llm, cookie,
                        no_cache=not args.use_cache, poll_timeout=args.poll_timeout)
         if card:
             cards.append(card)

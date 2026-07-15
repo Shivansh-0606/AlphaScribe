@@ -9,6 +9,8 @@ import requests
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
+from conftest import login
+
 # load backend .env to reach mongo
 load_dotenv("/app/backend/.env")
 
@@ -22,6 +24,7 @@ DB_NAME = os.environ["DB_NAME"]
 def client():
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json"})
+    login(s, "iter2")
     return s
 
 

@@ -10,7 +10,25 @@ if (!BACKEND_URL) {
 }
 export const API = `${BACKEND_URL}/api`;
 
-export const http = axios.create({ baseURL: API, timeout: 60000 });
+// Phase 4 login wall: every tool endpoint requires the session cookie, so
+// credentials ride on the shared instance rather than per-call.
+export const http = axios.create({ baseURL: API, timeout: 60000, withCredentials: true });
+
+export const registerUser = (email, password) =>
+  http.post("/auth/register", { email, password }).then((r) => r.data);
+export const loginUser = (email, password, remember) =>
+  http.post("/auth/login", { email, password, remember }).then((r) => r.data);
+export const logoutUser = () => http.post("/auth/logout").then((r) => r.data);
+export const getMe = () => http.get("/auth/me").then((r) => r.data);
+export const changePassword = (current_password, new_password) =>
+  http.post("/auth/password", { current_password, new_password }).then((r) => r.data);
+export const logoutAllSessions = () => http.post("/auth/logout-all").then((r) => r.data);
+export const deleteAccount = (email) =>
+  http.delete("/auth/me", { data: { email } }).then((r) => r.data);
+export const forgotPassword = (email) =>
+  http.post("/auth/forgot-password", { email }).then((r) => r.data);
+export const resetPassword = (email, otp, new_password) =>
+  http.post("/auth/reset-password", { email, otp, new_password }).then((r) => r.data);
 
 export const listTickers = () => http.get("/tickers").then((r) => r.data.tickers);
 export const listCompanies = () => http.get("/companies").then((r) => r.data.companies);
@@ -63,7 +81,10 @@ export const health = () => http.get("/health").then((r) => r.data);
 /** Subscribe to SSE for a job. Returns a close() function. */
 export const streamJob = (jobId, onEvent, onEnd) => {
   const url = `${API}/reports/${jobId}/stream`;
-  const es = new EventSource(url);
+  // /stream is gated behind the login wall — EventSource needs an explicit
+  // opt-in to send the cross-origin session cookie (unlike axios/fetch, it
+  // doesn't default to same-site-only without this flag either way).
+  const es = new EventSource(url, { withCredentials: true });
   es.onmessage = (msg) => {
     try {
       const data = JSON.parse(msg.data);

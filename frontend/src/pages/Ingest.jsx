@@ -159,7 +159,7 @@ export default function Ingest() {
 
   return (
     <div data-testid={INGEST.root} className="min-h-screen">
-      <div className="sticky top-0 z-10 bg-background border-b border-border">
+      <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border">
         <div className="h-14 px-6 flex items-center gap-3">
           <span className="mono text-[10px] text-muted-foreground uppercase tracking-widest">
             /ingest

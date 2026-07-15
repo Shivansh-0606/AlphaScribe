@@ -10,8 +10,10 @@ from pathlib import Path
 from typing import Any, Optional
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
@@ -19,6 +21,7 @@ from starlette.middleware.cors import CORSMiddleware
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
+from agents import auth, notify
 from agents.graph import build_graph
 from agents.ingest import (
     extract_pdf_text,
@@ -122,6 +125,56 @@ class JobSummary(BaseModel):
     retry_count: Optional[int] = None
 
 
+class RegisterRequest(BaseModel):
+    email: str = Field(max_length=254)
+    password: str = Field(min_length=8, max_length=256)
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=256)
+    remember: bool = False
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(max_length=256)
+    new_password: str = Field(min_length=8, max_length=256)
+
+
+class DeleteAccountRequest(BaseModel):
+    email: str = Field(max_length=254)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(max_length=254)
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str = Field(max_length=254)
+    otp: str = Field(min_length=6, max_length=6)
+    new_password: str = Field(min_length=8, max_length=256)
+
+
+def _set_session_cookie(response: Response, token: str, remember: bool) -> None:
+    kwargs: dict[str, Any] = dict(
+        key=auth.COOKIE_NAME, value=token, httponly=True, secure=True,
+        samesite="lax", path="/",
+    )
+    if remember:
+        kwargs["max_age"] = int(auth.SESSION_TTL_REMEMBER.total_seconds())
+    # else: no max-age -> session cookie, cleared when the browser closes
+    response.set_cookie(**kwargs)
+
+
+async def current_user(request: Request) -> dict:
+    """Dependency: cookie -> session -> user, or 401. Wired into every tool
+    route (Phase 4 login wall) — only Landing/Docs/health/auth stay open."""
+    user = await auth.get_current_user(db, request.cookies.get(auth.COOKIE_NAME))
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -145,8 +198,144 @@ async def health():
     }
 
 
+@api.post("/auth/register")
+async def register(req: RegisterRequest, response: Response):
+    email = req.email.strip().lower()
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email")
+    try:
+        user = await auth.create_user(db, email, req.password)
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Email already registered")
+    token, _ = await auth.create_session(db, user["id"], remember=False)
+    _set_session_cookie(response, token, remember=False)
+    return auth.public_user(user)
+
+
+@api.post("/auth/login")
+async def login(req: LoginRequest, response: Response):
+    # Keyed by email only (not IP): this is a shared single-process backend,
+    # and IP-keying would let unrelated brute-force attempts against other
+    # accounts lock out a legitimate user behind the same NAT/proxy.
+    # Recorded before the DB await (not after, on failure) so concurrent
+    # requests for the same key can't all read the pre-attempt count and
+    # slip past the cap together; clear_hits undoes it on success.
+    key = f"login:{req.email.strip().lower()}"
+    if auth.is_rate_limited(key):
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
+    auth.record_hit(key)
+    user = await auth.authenticate(db, req.email, req.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    auth.clear_hits(key)
+    token, _ = await auth.create_session(db, user["id"], remember=req.remember)
+    _set_session_cookie(response, token, remember=req.remember)
+    return auth.public_user(user)
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(req: ForgotPasswordRequest):
+    """Always returns the same response regardless of whether the email is
+    registered or the send succeeds — don't leak account existence. Keyed by
+    email only (see /auth/login) — caps OTP spam per victim without an
+    IP dimension that would self-DoS shared networks/proxies."""
+    email = req.email.strip().lower()
+    key = f"reset-req:{email}"
+    if not auth.is_rate_limited(key):
+        auth.record_hit(key)
+        user = await db.users.find_one({"email": email})
+        if user:
+            otp = await auth.create_password_reset(db, email)
+            # Fire-and-forget: awaiting the outbound Resend HTTP call here
+            # would make this branch measurably slower than the not-found
+            # branch, leaking account existence via response timing even
+            # though the response body is identical either way.
+            asyncio.create_task(notify.send_otp_email(email, otp))
+    return {"ok": True}
+
+
+@api.post("/auth/reset-password")
+async def reset_password(req: ResetPasswordRequest):
+    email = req.email.strip().lower()
+    key = f"reset-verify:{email}"
+    if auth.is_rate_limited(key):
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
+    auth.record_hit(key)  # see /auth/login: recorded before the await, not after, to close the race
+    ok = await auth.verify_password_reset(db, email, req.otp)
+    user = await db.users.find_one({"email": email}) if ok else None
+    if not ok or not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+    auth.clear_hits(key)
+    await auth.update_password(db, user["id"], req.new_password)
+    await auth.delete_all_sessions(db, user["id"])
+    return {"ok": True}
+
+
+@api.post("/auth/logout")
+async def logout(request: Request, response: Response):
+    token = request.cookies.get(auth.COOKIE_NAME)
+    if token:
+        await auth.delete_session(db, token)
+    response.delete_cookie(
+        key=auth.COOKIE_NAME, path="/", httponly=True, secure=True, samesite="lax",
+    )
+    return {"ok": True}
+
+
+@api.get("/auth/me")
+async def me(user: dict = Depends(current_user)):
+    return auth.public_user(user)
+
+
+@api.post("/auth/password")
+async def change_password(req: ChangePasswordRequest, request: Request,
+                           user: dict = Depends(current_user)):
+    if not auth.verify_password(req.current_password, user["password_salt"], user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    await auth.update_password(db, user["id"], req.new_password)
+    # Changing the password signs out every other device; this one stays
+    # signed in since the caller just proved they know the (new) password.
+    token = request.cookies.get(auth.COOKIE_NAME)
+    await auth.delete_other_sessions(db, user["id"], token)
+    return {"ok": True}
+
+
+@api.post("/auth/logout-all")
+async def logout_everywhere(response: Response, user: dict = Depends(current_user)):
+    await auth.delete_all_sessions(db, user["id"])
+    response.delete_cookie(
+        key=auth.COOKIE_NAME, path="/", httponly=True, secure=True, samesite="lax",
+    )
+    return {"ok": True}
+
+
+@api.delete("/auth/me")
+async def delete_account(req: DeleteAccountRequest, response: Response,
+                          user: dict = Depends(current_user)):
+    if req.email.strip().lower() != user["email"]:
+        raise HTTPException(status_code=400, detail="Email confirmation does not match")
+    # Cascade: user's own sessions + reports. Shared filings/chunks corpus and
+    # is_sample reports (user_id=None) are intentionally untouched.
+    report_ids = [
+        r["id"] for r in
+        await db.reports.find({"user_id": user["id"]}, {"id": 1, "_id": 0}).to_list(None)
+    ]
+    await db.reports.delete_many({"user_id": user["id"]})
+    if report_ids:
+        await db.jobs.delete_many({"id": {"$in": report_ids}})
+        for rid in report_ids:
+            JOBS.pop(rid, None)
+            JOB_QUEUES.pop(rid, None)
+    await auth.delete_all_sessions(db, user["id"])
+    await db.users.delete_one({"id": user["id"]})
+    response.delete_cookie(
+        key=auth.COOKIE_NAME, path="/", httponly=True, secure=True, samesite="lax",
+    )
+    return {"ok": True}
+
+
 @api.post("/ingest/text")
-async def ingest_text(req: IngestTextRequest):
+async def ingest_text(req: IngestTextRequest, user: dict = Depends(current_user)):
     if not req.text.strip():
         raise HTTPException(status_code=400, detail="text is empty")
     result = await ingest_document(
@@ -157,7 +346,7 @@ async def ingest_text(req: IngestTextRequest):
 
 
 @api.post("/ingest/edgar")
-async def ingest_edgar(req: IngestEdgarRequest):
+async def ingest_edgar(req: IngestEdgarRequest, user: dict = Depends(current_user)):
     doc = await fetch_edgar_latest(req.ticker, req.form_type)
     if not doc:
         raise HTTPException(status_code=404, detail=f"No {req.form_type} found for {req.ticker}")
@@ -170,7 +359,7 @@ async def ingest_edgar(req: IngestEdgarRequest):
 
 
 @api.post("/ingest/samples")
-async def ingest_samples():
+async def ingest_samples(user: dict = Depends(current_user)):
     ingested = []
     for s in SAMPLES:
         # skip if already there
@@ -201,6 +390,7 @@ async def ingest_audio(
     source: str = Form("Audio Transcript"),
     company_name: Optional[str] = Form(None),
     language: Optional[str] = Form("en"),
+    user: dict = Depends(current_user),
 ):
     """Transcribe an audio file via OpenAI Whisper and ingest the transcript.
 
@@ -279,6 +469,7 @@ async def ingest_pdf(
     ticker: str = Form(...),
     source: str = Form("Annual Report"),
     company_name: Optional[str] = Form(None),
+    user: dict = Depends(current_user),
 ):
     """Extract text from an uploaded PDF (e.g. an Indian annual report) and ingest it.
 
@@ -321,14 +512,14 @@ async def ingest_pdf(
 
 
 @api.get("/companies")
-async def list_companies():
+async def list_companies(user: dict = Depends(current_user)):
     """Ticker -> company name mapping derived from ingested filings."""
     rows = await db.companies.find({}, {"_id": 0}).to_list(1000)
     return {"companies": {r["ticker"]: r["name"] for r in rows if r.get("name")}}
 
 
 @api.get("/companies/search")
-async def companies_search(q: str, limit: int = 8):
+async def companies_search(q: str, limit: int = 8, user: dict = Depends(current_user)):
     """Fuzzy search the SEC company universe. Falls back to locally ingested
     companies if the SEC index hasn't been loaded yet."""
     q = (q or "").strip()
@@ -376,7 +567,7 @@ class EnsureRequest(BaseModel):
 
 
 @api.post("/companies/ensure")
-async def ensure_company(req: EnsureRequest):
+async def ensure_company(req: EnsureRequest, user: dict = Depends(current_user)):
     """Guarantee we have some filing for `ticker`. If none (or `refresh=True`),
     fetch latest 10-Q (falling back to 10-K) from SEC EDGAR and ingest it."""
     ticker = req.ticker.strip().upper()
@@ -466,7 +657,7 @@ async def ensure_company(req: EnsureRequest):
 
 
 @api.get("/filings")
-async def list_filings(ticker: Optional[str] = None):
+async def list_filings(ticker: Optional[str] = None, user: dict = Depends(current_user)):
     q: dict = {}
     if ticker:
         q["ticker"] = ticker.upper()
@@ -475,7 +666,7 @@ async def list_filings(ticker: Optional[str] = None):
 
 
 @api.get("/tickers")
-async def list_tickers():
+async def list_tickers(user: dict = Depends(current_user)):
     tickers = await db.filings.distinct("ticker")
     return {"tickers": sorted(tickers)}
 
@@ -489,7 +680,8 @@ async def _run_pipeline(job_id: str, ticker: str, query: str,
                         llm_provider: str | None = None,
                         llm_api_key: str | None = None,
                         llm_base_url: str | None = None,
-                        llm_model: str | None = None) -> None:
+                        llm_model: str | None = None,
+                        user_id: str | None = None) -> None:
     from agents.llm import set_llm_context, reset_llm_context
     _tok = (
         set_llm_context(llm_provider, llm_api_key,
@@ -549,6 +741,7 @@ async def _run_pipeline(job_id: str, ticker: str, query: str,
             "verified_claims": final_state.get("verified_claims", []),
             "retry_count": int(final_state.get("retry_count", 0)),
             "events": job["events"],
+            "user_id": user_id,
         }
         report_doc["scorecard"] = compute_scorecard(report_doc)
         # attach company name for display
@@ -607,10 +800,19 @@ async def _run_pipeline(job_id: str, ticker: str, query: str,
 
 
 @api.post("/reports/generate")
-async def generate_report(req: GenerateRequest):
+async def generate_report(req: GenerateRequest, user: dict = Depends(current_user)):
     ticker = req.ticker.strip().upper()
     if not ticker or not req.query.strip():
         raise HTTPException(status_code=400, detail="ticker and query are required")
+
+    # Custom provider (bring-your-own OpenAI-compatible endpoint) is admin-only
+    # — it's the only path that accepts a client-supplied base_url at all, so
+    # gating it here also gates the SSRF surface below to a trusted operator.
+    if (req.llm_provider == "custom" or req.llm_base_url) and not auth.is_admin(user):
+        raise HTTPException(
+            status_code=403,
+            detail="The Custom LLM provider is restricted to admin accounts.",
+        )
 
     # SSRF guard: the custom LLM endpoint is client-supplied and fetched by the
     # server, so it must not point at internal/loopback addresses.
@@ -618,8 +820,16 @@ async def generate_report(req: GenerateRequest):
         from agents.llm import assert_public_url
         try:
             assert_public_url(req.llm_base_url)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=f"llm_base_url {e}")
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Custom LLM base URL must be a publicly reachable http(s) "
+                    "address — the server calls it directly, so localhost and "
+                    "private-network addresses aren't allowed. Use a hosted "
+                    "endpoint, or tunnel a local LLM with ngrok/cloudflared."
+                ),
+            )
 
     # Require at least one ingested chunk for the ticker
     has_data = await db.filing_chunks.count_documents({"ticker": ticker}) > 0
@@ -640,17 +850,26 @@ async def generate_report(req: GenerateRequest):
         )
         cached = await db.reports.find_one(
             {"ticker": ticker, "query": req.query.strip()},
-            {"id": 1, "created_at": 1, "fact_check_status": 1, "_id": 0},
+            {"id": 1, "created_at": 1, "fact_check_status": 1, "user_id": 1, "is_sample": 1, "_id": 0},
             sort=[("created_at", -1)],
         )
         if cached and (
             not latest_filing
             or cached.get("created_at", "") >= latest_filing.get("created_at", "")
         ):
+            # A cache hit skips _run_pipeline (where user_id normally gets set),
+            # so an unclaimed report a signed-in user reuses would otherwise
+            # never show up in their history. Claim it once; leave already-owned
+            # reports and curated public samples alone. (Unclaimed reports are a
+            # pre-Phase-4 leftover — every report is user-owned going forward.)
+            if not cached.get("user_id") and not cached.get("is_sample"):
+                await db.reports.update_one(
+                    {"id": cached["id"], "user_id": None}, {"$set": {"user_id": user["id"]}}
+                )
             return {"job_id": cached["id"], "cached": True}
 
-    # Cap concurrency (unauthenticated endpoint — don't let a caller spin up
-    # unbounded pipelines) and prune finished jobs from memory.
+    # Cap concurrency (any signed-in user can still spin up unbounded pipelines
+    # one at a time; this bounds the server-wide total) and prune finished jobs.
     active = sum(1 for j in JOBS.values() if j.get("status") in ("queued", "running"))
     if active >= MAX_ACTIVE_JOBS:
         raise HTTPException(
@@ -689,13 +908,14 @@ async def generate_report(req: GenerateRequest):
     JOBS[job_id]["task"] = asyncio.create_task(
         _run_pipeline(job_id, ticker, req.query, prior_brief=prior_brief,
                       llm_provider=req.llm_provider, llm_api_key=req.llm_api_key,
-                      llm_base_url=req.llm_base_url, llm_model=req.llm_model)
+                      llm_base_url=req.llm_base_url, llm_model=req.llm_model,
+                      user_id=user["id"])
     )
     return {"job_id": job_id}
 
 
 @api.post("/reports/{job_id}/cancel")
-async def cancel_report(job_id: str):
+async def cancel_report(job_id: str, user: dict = Depends(current_user)):
     job = JOBS.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
@@ -710,7 +930,7 @@ async def cancel_report(job_id: str):
 
 
 @api.get("/reports/{job_id}/stream")
-async def stream_report(job_id: str):
+async def stream_report(job_id: str, user: dict = Depends(current_user)):
     if job_id not in JOB_QUEUES:
         raise HTTPException(status_code=404, detail="job not found")
 
@@ -749,7 +969,7 @@ async def stream_report(job_id: str):
 
 
 @api.get("/reports/{job_id}")
-async def get_report(job_id: str):
+async def get_report(job_id: str, user: dict = Depends(current_user)):
     doc = await db.reports.find_one({"id": job_id}, {"_id": 0})
     if not doc:
         # maybe still running — return job snapshot (in-memory or persisted)
@@ -770,8 +990,12 @@ async def get_report(job_id: str):
 
 
 @api.get("/reports")
-async def list_reports(ticker: Optional[str] = None, limit: int = 50):
-    q: dict = {}
+async def list_reports(ticker: Optional[str] = None, limit: int = 50,
+                        user: dict = Depends(current_user)):
+    # Login wall means every caller is a real account now, so listing always
+    # scopes to the caller's own reports plus the curated public samples —
+    # never another user's history.
+    q: dict = {"$or": [{"user_id": user["id"]}, {"is_sample": True}]}
     if ticker:
         q["ticker"] = ticker.upper()
     rows = (
@@ -783,16 +1007,27 @@ async def list_reports(ticker: Optional[str] = None, limit: int = 50):
 
 
 @api.delete("/reports/{report_id}")
-async def delete_report(report_id: str):
-    result = await db.reports.delete_one({"id": report_id})
-    await db.jobs.delete_one({"id": report_id})
+async def delete_report(report_id: str, user: dict = Depends(current_user)):
+    # Scoped to the caller's own reports — unlike the read-side endpoints,
+    # deletion is destructive/irreversible, so it can't lean on the report id
+    # being an unguessable UUID the way GET/compare do. Without this, any
+    # signed-in user could delete another user's report or (since `is_sample`
+    # ids are visible to every caller via GET /reports) the shared public
+    # samples. Samples have user_id=None, so this also makes them read-only.
+    result = await db.reports.delete_one({"id": report_id, "user_id": user["id"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="report not found")
+    await db.jobs.delete_one({"id": report_id})
+    # Also evict the in-memory job entry — get_report falls back to JOBS when
+    # the Mongo doc is missing, so without this a deleted report still 200s
+    # (as "completed") until the process restarts or _reap_jobs() evicts it.
+    JOBS.pop(report_id, None)
+    JOB_QUEUES.pop(report_id, None)
     return {"deleted": report_id}
 
 
 @api.get("/companies/trending")
-async def trending_companies(limit: int = 8):
+async def trending_companies(limit: int = 8, user: dict = Depends(current_user)):
     """Return the companies with the most generated reports (proxy for interest)."""
     pipeline = [
         {"$group": {"_id": "$ticker", "count": {"$sum": 1}}},
@@ -831,7 +1066,7 @@ async def trending_companies(limit: int = 8):
 
 
 @api.post("/reports/rescore")
-async def rescore_reports():
+async def rescore_reports(user: dict = Depends(current_user)):
     """Recompute scorecards for all reports using full source_documents.
 
     Useful after upgrading the scoring logic; safe to re-run.
@@ -850,7 +1085,7 @@ class CompareRequest(BaseModel):
 
 
 @api.post("/reports/compare")
-async def compare_reports(req: CompareRequest):
+async def compare_reports(req: CompareRequest, user: dict = Depends(current_user)):
     """Load 2-4 reports side by side for portfolio comparison."""
     rows = await db.reports.find(
         {"id": {"$in": req.report_ids}},
@@ -870,13 +1105,26 @@ async def compare_reports(req: CompareRequest):
 
 app.include_router(api)
 
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError):
+    # FastAPI's default 422 handler echoes each invalid field's raw value
+    # verbatim (pydantic's `input` key) — that would put a too-short password
+    # in plaintext in the response body. Strip it app-wide.
+    errors = jsonable_encoder(exc.errors())
+    for e in errors:
+        e.pop("input", None)
+    return JSONResponse(status_code=422, content={"detail": errors})
+
+
 app.add_middleware(
     CORSMiddleware,
-    # No cookie/session auth (the BYO key rides in the request body), so
-    # credentials are off. With credentials off, "*" is a true wildcard rather
-    # than per-origin reflection — the honest setting for a public, authless API.
-    allow_credentials=False,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    # Cookie-based sessions cross-origin (dev is frontend :3001 / backend
+    # :8001) require credentials allowed AND an explicit origin — "*" is
+    # invalid with credentials. Every tool route is gated behind the login
+    # wall (Phase 4), so this is load-bearing, not just for manual testing.
+    allow_credentials=True,
+    allow_origins=os.environ.get("CORS_ORIGINS", "http://localhost:3001").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -886,6 +1134,7 @@ app.add_middleware(
 async def _warmup():
     """Preload embedding + rerank models in the background so the first pipeline
     run does not incur ~30-40s of cold-start model download / ONNX load."""
+    await auth.ensure_indexes(db)
 
     async def _run():
         from agents.retrieval import _get_embedder, _get_reranker  # noqa: WPS437
