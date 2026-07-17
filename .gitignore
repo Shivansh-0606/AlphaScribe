@@ -3,6 +3,7 @@
 # IDE and editors
 .idea/
 .vscode/
+.claude-flow/
 
 # Dependencies
 node_modules/

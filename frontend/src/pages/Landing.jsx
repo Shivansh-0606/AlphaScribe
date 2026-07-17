@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 
 // Marketing landing page. Warm-light / editorial-fintech redesign — cream paper
@@ -19,6 +20,29 @@ const GREEN = "#059669";
 const RED = "#DC2626";
 const AMBER = "#C2740B";
 const GRAD = `linear-gradient(135deg, ${EMERALD_HI}, ${TEAL})`;
+
+// Scroll-reveal presets — sections fade/slide in as they enter the viewport
+// (Framer Motion whileInView), replacing the old load-time CSS entrances below
+// the fold. `once` so they don't re-run on scroll-back.
+const EASE = [0.16, 1, 0.3, 1];
+const REVEAL = {
+  initial: { opacity: 0, y: 28 },
+  whileInView: { opacity: 1, y: 0 },
+  viewport: { once: true, margin: "-80px" },
+  transition: { duration: 0.6, ease: EASE },
+};
+const REVEAL_L = {
+  initial: { opacity: 0, x: -28 },
+  whileInView: { opacity: 1, x: 0 },
+  viewport: { once: true, margin: "-80px" },
+  transition: { duration: 0.6, ease: EASE },
+};
+const REVEAL_R = {
+  initial: { opacity: 0, x: 28 },
+  whileInView: { opacity: 1, x: 0 },
+  viewport: { once: true, margin: "-80px" },
+  transition: { duration: 0.6, ease: EASE },
+};
 
 export default function Landing() {
   const nav = useNavigate();
@@ -211,7 +235,7 @@ export default function Landing() {
         </div>
 
         {/* TRUST / STATS */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 1, background: BORDER, borderBottom: `1px solid ${BORDER}` }}>
+        <motion.div {...REVEAL} style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 1, background: BORDER, borderBottom: `1px solid ${BORDER}` }}>
           {[
             ["7", EMERALD, "LLM PROVIDERS SUPPORTED", true],
             ["100%", GREEN, "CLAIMS VERIFIED VS SOURCE", true],
@@ -223,14 +247,14 @@ export default function Landing() {
               <div className="mono" style={{ fontSize: 11, color: SLATE, letterSpacing: "0.12em", marginTop: 6 }}>{small}</div>
             </div>
           ))}
-        </div>
+        </motion.div>
 
         {/* HOW IT WORKS */}
         <div id="how" style={{ padding: "100px 40px", borderBottom: `1px solid ${BORDER}` }}>
           <div style={{ maxWidth: 1160, margin: "0 auto" }}>
             <div className="mono" style={{ color: EMERALD, fontSize: 11, letterSpacing: "0.28em", marginBottom: 14, textAlign: "center" }}>THE PIPELINE</div>
             <h2 style={{ fontSize: 36, fontWeight: 600, textAlign: "center", margin: "0 0 60px", letterSpacing: "-0.01em", color: INK }}>Five agents. One fact-checked brief.</h2>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 1, background: BORDER }}>
+            <motion.div {...REVEAL} style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 1, background: BORDER }}>
               {[
                 ["01", "Retriever", "Hybrid BM25 + dense + cross-encoder re-rank pulls the exact filing passages."],
                 ["02", "Extractor", "Pulls financials from the retrieved passages in parallel with tone analysis."],
@@ -238,20 +262,20 @@ export default function Landing() {
                 ["04", "Synthesizer", "Writes the brief with inline [1][2] citations back to source."],
                 ["05", "Fact-Checker", "Verifies every number against the source — retries the draft if unsupported."],
               ].map(([n, title, body]) => (
-                <div key={n} className="lp-lift lp-pop" style={{ background: CARD, padding: "26px 20px", border: "1px solid transparent" }}>
+                <div key={n} className="lp-lift" style={{ background: CARD, padding: "26px 20px", border: "1px solid transparent" }}>
                   <div className="mono lp-gradtext" style={{ fontSize: 13, fontWeight: 700, marginBottom: 14 }}>{n}</div>
                   <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8, color: INK }}>{title}</div>
                   <div style={{ fontSize: 12.5, color: SLATE, lineHeight: 1.6 }}>{body}</div>
                 </div>
               ))}
-            </div>
+            </motion.div>
           </div>
         </div>
 
         {/* LIVE BRIEF EXAMPLE */}
         <div className="lp-mesh" style={{ padding: "100px 40px", borderBottom: `1px solid ${BORDER}` }}>
           <div style={{ maxWidth: 1160, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 1.15fr", gap: 64, alignItems: "center" }}>
-            <div className="lp-slide-left">
+            <motion.div {...REVEAL_L}>
               <div className="mono" style={{ color: EMERALD, fontSize: 11, letterSpacing: "0.28em", marginBottom: 14 }}>GROUNDED, CITED, VERIFIED</div>
               <h2 style={{ fontSize: 34, fontWeight: 600, margin: "0 0 20px", letterSpacing: "-0.01em", color: INK }}>Every claim traces back to a source.</h2>
               <p style={{ fontSize: 15, color: SLATE, lineHeight: 1.75, margin: "0 0 28px" }}>
@@ -261,8 +285,8 @@ export default function Landing() {
                 <span className="mono" style={{ fontSize: 11, border: `1px solid ${GREEN}`, color: GREEN, background: "rgba(5,150,105,0.06)", padding: "4px 10px" }}>VERIFIED</span>
                 <span className="mono" style={{ fontSize: 11, border: `1px solid ${RED}`, color: RED, background: "rgba(220,38,38,0.05)", padding: "4px 10px" }}>FLAGGED</span>
               </div>
-            </div>
-            <div className="lp-slide-right" style={{ background: CARD, border: `1px solid ${BORDER}`, boxShadow: "0 30px 70px -30px rgba(21,33,47,0.2)" }}>
+            </motion.div>
+            <motion.div {...REVEAL_R} style={{ background: CARD, border: `1px solid ${BORDER}`, boxShadow: "0 30px 70px -30px rgba(21,33,47,0.2)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: `1px solid ${BORDER}` }}>
                 <span style={{ fontWeight: 600, fontSize: 14, color: INK }}>Tesla, Inc. — Q2 2026 Snapshot</span>
                 <span className="mono" style={{ fontSize: 10, border: `1px solid ${GREEN}`, color: GREEN, padding: "3px 8px" }}>COMPLETE · VERIFIED</span>
@@ -273,7 +297,7 @@ export default function Landing() {
               <div className="mono" style={{ display: "flex", gap: 16, padding: "14px 24px", borderTop: `1px solid ${BORDER}`, color: SLATE, fontSize: 11 }}>
                 <span>[1] 10-Q, p.4</span><span>[2] Earnings call</span><span>[3] 10-Q, p.9</span>
               </div>
-            </div>
+            </motion.div>
           </div>
         </div>
 
@@ -282,7 +306,7 @@ export default function Landing() {
           <div style={{ maxWidth: 1160, margin: "0 auto" }}>
             <div className="mono" style={{ color: EMERALD, fontSize: 11, letterSpacing: "0.28em", marginBottom: 14, textAlign: "center" }}>BUILT FOR RESEARCH, NOT DEMOS</div>
             <h2 style={{ fontSize: 36, fontWeight: 600, textAlign: "center", margin: "0 0 60px", letterSpacing: "-0.01em", color: INK }}>Everything a research desk needs.</h2>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 1, background: BORDER }}>
+            <motion.div {...REVEAL} style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 1, background: BORDER }}>
               {[
                 ["⌗", EMERALD, "Hybrid RAG retrieval", "BM25 keyword search fused with dense embeddings, re-ranked by a cross-encoder for precision."],
                 ["✓", GREEN, "Automatic fact-checking", "Unsupported claims are flagged and the draft is retried until every number is grounded."],
@@ -291,13 +315,13 @@ export default function Landing() {
                 ["▣", RED, "Multiple ingest paths", "Auto-fetch from SEC EDGAR, paste text, load demo filings, or upload earnings-call audio."],
                 ["⧉", EMERALD, "Compare & follow up", "Line up reports side by side and ask follow-up questions that build on a prior brief."],
               ].map(([icon, color, title, body]) => (
-                <div key={title} className="lp-lift lp-pop" style={{ background: CARD, padding: 32, border: "1px solid transparent" }}>
+                <div key={title} className="lp-lift" style={{ background: CARD, padding: 32, border: "1px solid transparent" }}>
                   <div style={{ color, fontSize: 20, marginBottom: 16 }}>{icon}</div>
                   <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 10, color: INK }}>{title}</div>
                   <div style={{ fontSize: 13, color: SLATE, lineHeight: 1.7 }}>{body}</div>
                 </div>
               ))}
-            </div>
+            </motion.div>
           </div>
         </div>
 
@@ -306,7 +330,7 @@ export default function Landing() {
           <div style={{ maxWidth: 1000, margin: "0 auto" }}>
             <div className="mono" style={{ color: EMERALD, fontSize: 11, letterSpacing: "0.28em", marginBottom: 14, textAlign: "center" }}>PRICING</div>
             <h2 style={{ fontSize: 36, fontWeight: 600, textAlign: "center", margin: "0 0 60px", letterSpacing: "-0.01em", color: INK }}>Bring your own key. Pay the provider, not us.</h2>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 1, background: BORDER }}>
+            <motion.div {...REVEAL} style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 1, background: BORDER }}>
               {[
                 ["SELF-HOSTED", SLATE, "$0", "Run locally, use free-tier or self-hosted models", ["Gemini / Groq free tier", "Local Ollama / LM Studio", "One-command launcher", "MIT licensed, fully open"], false],
                 ["HOSTED", EMERALD, "Usage-based", "We run the pipeline, you bring any provider key", ["Everything in Self-Hosted", "Managed retrieval index", "SSE pipeline streaming", "Priority support"], true],
@@ -321,7 +345,7 @@ export default function Landing() {
                   </div>
                 </div>
               ))}
-            </div>
+            </motion.div>
           </div>
         </div>
 
@@ -330,7 +354,7 @@ export default function Landing() {
           <div style={{ maxWidth: 820, margin: "0 auto" }}>
             <div className="mono" style={{ color: EMERALD, fontSize: 11, letterSpacing: "0.28em", marginBottom: 14, textAlign: "center" }}>FAQ</div>
             <h2 style={{ fontSize: 36, fontWeight: 600, textAlign: "center", margin: "0 0 50px", letterSpacing: "-0.01em", color: INK }}>Questions, answered.</h2>
-            <div style={{ display: "flex", flexDirection: "column" }}>
+            <motion.div {...REVEAL} style={{ display: "flex", flexDirection: "column" }}>
               {[
                 ["Which LLM provider do I need?", "Any one — Gemini, OpenAI, Anthropic, Groq, OpenRouter, DeepSeek, Mistral, or a self-hosted OpenAI-compatible endpoint. Gemini's free tier is the simplest zero-cost start."],
                 ["How does the fact-checking actually work?", "A dedicated fact-checker agent compares every numeric claim in the drafted brief against the retrieved source passages, then triggers a retry if a claim isn't grounded."],
@@ -338,22 +362,22 @@ export default function Landing() {
                 ["Is my API key safe?", "Keys pasted into the app live in your browser only and are sent per-request — they never touch our server beyond that single call."],
                 ["Can I run this myself?", "Yes — it's MIT licensed. One command downloads a portable MongoDB, installs dependencies, and starts the app locally."],
               ].map(([q, a], i, arr) => (
-                <div key={q} className={i < 4 ? `lp-fade${i + 1}` : undefined} style={{ borderTop: `1px solid ${BORDER}`, borderBottom: i === arr.length - 1 ? `1px solid ${BORDER}` : undefined, padding: "22px 0" }}>
+                <div key={q} style={{ borderTop: `1px solid ${BORDER}`, borderBottom: i === arr.length - 1 ? `1px solid ${BORDER}` : undefined, padding: "22px 0" }}>
                   <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 8, color: INK }}>{q}</div>
                   <div style={{ fontSize: 13.5, color: SLATE, lineHeight: 1.7 }}>{a}</div>
                 </div>
               ))}
-            </div>
+            </motion.div>
           </div>
         </div>
 
         {/* FINAL CTA */}
         <div className="lp-mesh" style={{ position: "relative", borderBottom: `1px solid ${BORDER}` }}>
-          <div className="lp-glines" style={{ padding: "110px 40px", textAlign: "center" }}>
+          <motion.div {...REVEAL} className="lp-glines" style={{ padding: "110px 40px", textAlign: "center" }}>
             <h2 style={{ fontSize: 40, fontWeight: 600, margin: "0 0 18px", letterSpacing: "-0.01em", color: INK }}>Stop reading 40-page filings.</h2>
             <p style={{ fontSize: 15, color: SLATE, margin: "0 0 36px" }}>Ask the question. Get the cited answer.</p>
             <button onClick={toApp} className="lp-btn lp-glow" style={{ background: GRAD, color: "#fff", border: "none", padding: "15px 32px", fontFamily: "'IBM Plex Mono',monospace", fontSize: 13, fontWeight: 600, letterSpacing: "0.03em", cursor: "pointer" }}>TRY FOR FREE →</button>
-          </div>
+          </motion.div>
         </div>
 
         {/* FOOTER */}

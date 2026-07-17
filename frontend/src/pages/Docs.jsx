@@ -3,6 +3,7 @@
 // app's own design system (warm-light cream canvas, IBM Plex Sans/Mono, ink-navy
 // type, sharp corners, emerald accent) so it matches the rest of AlphaScribe.
 // Sibling of Landing.jsx.
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 
@@ -26,6 +27,9 @@ const C = {
 
 export default function Docs() {
   const { user } = useAuth();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
   const rootStyle = {
     display: "flex",
     minHeight: "100vh",
